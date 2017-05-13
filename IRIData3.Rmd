@@ -1,0 +1,134 @@
+---
+title: "IRI Data File"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+trimspaces <- function(dat) {
+  dat$COLUPC<-trimws(dat$COLUPC)
+  dat$WEEK<-trimws(dat$WEEK)
+  dat$IRI_KEY<-trimws(dat$IRI_KEY)
+  return (dat)
+}
+
+combineupc <- function(dat) {
+  dat$COLUPC<-paste(sprintf("%02d", dat$SY), dat$GE, sprintf("%05d", dat$VEND), sprintf("%05d", dat$ITEM), sep="")
+  return (dat)
+}
+```
+
+
+
+```{r}
+panel.dk = read.table("data\\toothpa_PANEL_DR_1427_1478.DAT", sep="", header = TRUE, na.strings="", stringsAsFactors = F, colClasses = c(rep("character",4),"numeric", "character", "character")) 
+panel.dk<-trimspaces(panel.dk)
+panel.gk = read.table("data\\toothpa_PANEL_GR_1427_1478.DAT", sep="", header = TRUE, na.strings="", stringsAsFactors = F, colClasses = c(rep("character",4),"numeric", "character", "character"))
+panel.gk<-trimspaces(panel.gk)
+panel.mk = read.table("data\\toothpa_PANEL_MA_1427_1478.DAT", sep="", header = TRUE, na.strings="", stringsAsFactors = F, colClasses = c(rep("character",4),"numeric", "character", "character"))
+panel.mk<-trimspaces(panel.mk)
+
+panel.all<-rbind(panel.dk, panel.gk)
+```
+
+
+```{r}
+trans.groc = read.table("data\\toothpa_groc_1427_1478", sep="", header = TRUE, na.strings="", stringsAsFactors = F, colClasses = c(rep("character",2),rep("numeric", 6), "character", "numeric", "numeric"))
+trans.groc<-combineupc(trans.groc)
+trans.groc<-trimspaces(trans.groc)
+
+trans.drug = read.table("data\\toothpa_drug_1427_1478", sep="", header = TRUE, na.strings="", stringsAsFactors = F, colClasses = c(rep("character",2),rep("numeric", 6), "character", "numeric", "numeric"))
+trans.drug<-combineupc(trans.drug)
+trans.drug<-trimspaces(trans.drug)
+
+trans.all<-rbind(trans.groc, trans.drug)
+```
+
+
+```{r}
+prod.attr = read.csv("toothpa_prod_attr.csv", header = TRUE)
+prod.attr$COLUPC<-paste(sprintf("%02d", prod.attr$SY), prod.attr$GE, sprintf("%05d", prod.attr$VEND), sprintf("%05d", prod.attr$ITEM), sep="")
+```
+
+
+```{r}
+joined.one<-merge(x=panel.all, y=trans.all, by=c("COLUPC", "IRI_KEY", "WEEK"))
+joined.all<-merge(joined.one, prod.attr, by=c("COLUPC"))
+```
+
+```{r}
+levels(joined.all$SIZE)[8]<-"REGULAR"
+
+reduced.data<-data.frame(PANID=as.factor(joined.all$PANID), 
+                         UNITS=as.double(joined.all$UNITS.x), 
+                         OUTLET=as.factor(joined.all$OUTLET), 
+                         DOLLARS=as.double(joined.all$DOLLARS.x), 
+                         VEND=as.factor(joined.all$VEND.x), 
+                         ITEM=as.factor(joined.all$ITEM.x), 
+                         F=as.factor(joined.all$F), 
+                         D=joined.all$D, 
+                         PR=joined.all$PR, 
+                         VOL_EQ=joined.all$VOL_EQ, 
+                         SIZE=joined.all$SIZE,
+                         FLAVOR.SCENT=joined.all$FLAVOR.SCENT, 
+                         FORM=joined.all$FORM, 
+                         PACKAGE=joined.all$PACKAGE, 
+                         PRODUCT.TYPE=joined.all$PRODUCT.TYPE, 
+                         STORE.LOCATION=joined.all$STORE.LOCATION, 
+                         ADDITIVES=joined.all$ADDITIVES, 
+                         TYPE.OF.FORMULAT=joined.all$TYPE.OF.FORMULA, 
+                         COLOR=joined.all$COLOR)
+
+```
+
+
+
+```{r}
+reduced.data$COUNT<-1
+trans.per.panelist<-aggregate(list(Transactions=reduced.data$COUNT), by=list(Panelist=reduced.data$PANID), FUN=sum, na.rm=TRUE)
+hist(trans.per.panelist$Transactions, breaks=60, main="Num Transactions Per Panelist", xlab="# Transactions")
+```
+```{r}
+vend.item<-data.frame(VEND=reduced.data$VEND, ITEM=reduced.data$ITEM)
+vend.item$COUNT<-1
+vend.item.nodups<-aggregate(vend.item$COUNT, by=list(VEND=vend.item$VEND, ITEM=vend.item$ITEM), FUN=sum, na.rm=TRUE)
+vend.item.nodups$x<-1
+items.per.vender<-aggregate(list(VENDORITEMCOUNT=vend.item.nodups$x), by=list(VEND=vend.item.nodups$VEND), FUN=sum, na.rm=TRUE)
+items.per.vender
+
+num.venders<-nrow(items.per.vender)
+cat("Number of vendors = ", num.venders)
+
+reduced.data<-merge(reduced.data, items.per.vender, by=c("VEND"), all.x = TRUE)
+```
+
+
+```{r}
+items.per.size<-aggregate(reduced.data$COUNT, by=list(VOL=reduced.data$VOL_EQ, SIZE=reduced.data$SIZE), FUN=sum, na.rm=TRUE)
+items.per.size[order(items.per.size$VOL),]
+# it looks like some things marked regular could be changed to travel, and trial should be changed to travel, and could combine some of the similar values of VOL, probably could standardize on TWIN PACK vs VALUE PACK
+hist(items.per.size$x)
+```
+
+```{r}
+reduced.data
+write.csv(reduced.data, file="cleaned_data_1427_1478.csv")
+```
+
+
+```{r}
+# so there was no DEMOS file for the time period we used above, these were in the nearest years
+panelist.attrs = read.csv("data\\DEMOS_1322_1373.csv", header = TRUE)
+#panelist.attrs = read.csv("data\\DEMOS_1479_1530.csv", header = TRUE)
+names(panelist.attrs)[1]<-"PANID"
+reduced.data.test<-merge(reduced.data, panelist.attrs, by=c("PANID"))
+# the size of the data after this merege is smaller by about 1500, so not all the panelist were found in DEMOS file, these IRI guys kinda suck
+```
+
+```{r}
+write.csv(reduced.data.test, file="cleaned_data_1427_1478_with_panelist_demographics.csv")
+```
+
