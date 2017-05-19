@@ -1,0 +1,81 @@
+---
+title: "IRIDataMergedDataExploration"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+merged.data<-read.csv("cleaned_data_1427_1478_with_panelist_demographics.csv", header = TRUE, na.strings = c(".") )
+merged.data$COUNT<-1
+merged.data<-merged.data[,c(2:58)]
+merged.data$PANID<-as.factor(merged.data$PANID)
+merged.data$VEND<-as.factor(sprintf("%05d", merged.data$VEND))
+merged.data$ITEM<-as.factor(sprintf("%05d", merged.data$ITEM))
+merged.data$D<-as.factor(merged.data$D)
+merged.data$PR<-as.factor(merged.data$PR)
+# < 0.1, 0.1 < x < 0.26, 0.26 < x < 0.35, 0.35 < x < 0.3938, 0.3938 < x < 0.4894, 0.4894 < x < 0.675, 0.675+
+merged.data$VOL_EQ<-cut(merged.data$VOL_EQ, breaks = c(-Inf, 0.1, 0.26, 0.35, 0.3938, 0.4894, 0.675, Inf), labels = c("MICRO", "VERY_SMALL", "SMALL", "MEDIUM_SMALL", "MEDIUM", "MEDIUM_LARGE", "LARGE"))
+merged.data[c(22:57)]<-lapply(merged.data[c(22:57)], factor)
+
+```
+
+Lets see how many levels are in each of the factor columns:
+
+```{r}
+for (x in c(1:ncol(merged.data))) {
+  if (is.factor(merged.data[,x])) {
+    print(paste(colnames(merged.data)[x], "=", nlevels(merged.data[,x])))
+  }
+}
+```
+Should we reduce the number of brands we are dealing with?  Now its 29, maybe to 15?
+
+```{r}
+barplot(table(merged.data$VEND))
+```
+According to the bar chart we could reduce it to something like 6 or 7.
+
+
+Lets do a barplot of some other interesting ones:
+
+```{r}
+
+barplot(table(merged.data$PRODUCT.TYPE))
+```
+
+We should probably get rid of everything but TOOTHEPASTE, could throw brand purchasing off.
+
+```{r}
+barplot(table(merged.data$VOL_EQ))
+merged.data.regular<-merged.data[which(merged.data$SIZE == "REGULAR"),]
+barplot(table(merged.data.regular$VOL_EQ))
+```
+```{r}
+barplot(table(merged.data$SIZE))
+```
+Hmm, maybe only do one "SIZE", then divide that up into "VOL_EQ"s
+
+```{r}
+barplot(table(merged.data.regular$SIZE))
+```
+
+
+Lets look at for each person how many products in each brand type they purchased:
+
+```{r}
+brands.by.person<-aggregate(merged.data$COUNT, by=list(Person=merged.data$PANID, Brand=merged.data$VEND), FUN=sum)
+brands.by.person<-brands.by.person[order(brands.by.person$Person),]
+brands.by.person
+```
+How about number of brands a each person switched between:
+
+```{r}
+brand.per.person<-aggregate(brands.by.person$x, by=list(Person=brands.by.person$Person), FUN=sum)
+brand.per.person
+
+hist(brand.per.person$x)
+```
+

@@ -1,0 +1,65 @@
+---
+title: "IRIDataExploration"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+trans.all = read.table("data\\toothpa_groc_1427_1478", sep="", header = TRUE, na.strings="", stringsAsFactors = F, colClasses = c(rep("character",2),rep("numeric", 6), "character", "numeric", "numeric"))
+trans.all<-combineupc(trans.all)
+trans.all<-trimspaces(trans.all)
+
+trans.drug = read.table("data\\toothpa_drug_1427_1478", sep="", header = TRUE, na.strings="", stringsAsFactors = F, colClasses = c(rep("character",2),rep("numeric", 6), "character", "numeric", "numeric"))
+trans.drug<-combineupc(trans.drug)
+trans.drug<-trimspaces(trans.drug)
+
+trans.all<-rbind(trans.all, trans.drug)
+trans.all$COUNT<-1
+
+```
+
+
+```{r}
+
+# this will caount the number of sales from each unique store
+store.sales<-aggregate(trans.all$COUNT, by=list(Store=trans.all$IRI_KEY), FUN=sum)
+hist(store.sales$x)
+```
+```{r}
+# number of stores
+nrow(store.sales)
+
+# top five store sales
+head(store.sales[order(-store.sales$x),])
+```
+
+
+```{r}
+# this will count the number of products sold by each vendor/brand
+brand.sales<-aggregate(list(COUNT=trans.all$COUNT), by=list(Brand=trans.all$VEND), FUN=sum)
+brand.sales$Brand<-sprintf("%05d", brand.sales$Brand)
+brand.sales$Brand<-as.factor(brand.sales$Brand)
+# sort them largest to smallest
+brand.sales.sorted<-brand.sales[order(-brand.sales$COUNT),]
+# show the top 6 brands sold
+head(brand.sales.sorted)
+
+# this reduces the number of brands to about 20
+brand.sales<-brand.sales[which(brand.sales$COUNT > 5000),]
+
+plot(brand.sales$Brand, brand.sales$COUNT)
+hist(brand.sales$COUNT)
+```
+
+
+
+
+```{r}
+products.per.brand<-aggregate(list(COUNT=trans.all$COUNT), by=list(Brand=trans.all$VEND, Product=trans.all$ITEM), FUN=sum)
+products.per.brand$Brand<-sprintf("%05d", products.per.brand$Brand)
+products.per.brand$Brand<-as.factor(products.per.brand$Brand)
+products.per.brand$Product<-sprintf("%05d", products.per.brand$Product)
+products.per.brand$Product<-as.factor(products.per.brand$Product)
+
+head(products.per.brand[order(-products.per.brand$COUNT),])
+```
+

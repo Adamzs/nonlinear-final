@@ -31,7 +31,7 @@ panel.gk<-trimspaces(panel.gk)
 panel.mk = read.table("data\\toothpa_PANEL_MA_1427_1478.DAT", sep="", header = TRUE, na.strings="", stringsAsFactors = F, colClasses = c(rep("character",4),"numeric", "character", "character"))
 panel.mk<-trimspaces(panel.mk)
 
-panel.all<-rbind(panel.dk, panel.gk)
+panel.all<-rbind(panel.dk, panel.gk, panel.mk)
 ```
 
 
@@ -114,7 +114,7 @@ hist(items.per.size$x)
 ```
 
 ```{r}
-reduced.data
+head(reduced.data)
 write.csv(reduced.data, file="cleaned_data_1427_1478.csv")
 ```
 
