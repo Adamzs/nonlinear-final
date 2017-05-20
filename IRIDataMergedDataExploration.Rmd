@@ -1,6 +1,8 @@
 ---
 title: "IRIDataMergedDataExploration"
-output: html_document
+output:
+  pdf_document: default
+  html_document: default
 ---
 
 ```{r setup, include=FALSE}
@@ -22,6 +24,23 @@ merged.data[c(22:57)]<-lapply(merged.data[c(22:57)], factor)
 
 ```
 
+Number of panelists:
+```{r}
+nlevels(merged.data$PANID)
+```
+
+Number of transactions:
+```{r}
+nrow(merged.data)
+```
+
+Average purchases per person:
+```{r}
+nrow(merged.data) / nlevels(merged.data$PANID)
+
+```
+
+
 Lets see how many levels are in each of the factor columns:
 
 ```{r}
@@ -31,51 +50,170 @@ for (x in c(1:ncol(merged.data))) {
   }
 }
 ```
-Should we reduce the number of brands we are dealing with?  Now its 29, maybe to 15?
+
+
+Should we reduce the number of brands we are dealing with?  Now its 29, maybe to 10?
 
 ```{r}
 barplot(table(merged.data$VEND))
 ```
 According to the bar chart we could reduce it to something like 6 or 7.
 
+Find out which ones they are:
+
+```{r}
+vendor.counts<-aggregate(merged.data$COUNT, by=list(Brand<-merged.data$VEND), FUN=sum)
+head(vendor.counts[order(-vendor.counts$x),], n = 10)
+#lets take anything above 30
+brands<-vendor.counts[which(vendor.counts$x > 31),1]
+brands
+# now remove all non-brand from data
+merged.data.reduced<-merged.data[which(merged.data$VEND %in% brands),]
+# how to reduce number of levels to match new?
+merged.data.reduced$VEND<-factor(merged.data.reduced$VEND)
+levels(merged.data.reduced$VEND)
+```
+
 
 Lets do a barplot of some other interesting ones:
 
 ```{r}
 
-barplot(table(merged.data$PRODUCT.TYPE))
+barplot(table(merged.data.reduced$PRODUCT.TYPE))
 ```
 
 We should probably get rid of everything but TOOTHEPASTE, could throw brand purchasing off.
-
 ```{r}
-barplot(table(merged.data$VOL_EQ))
-merged.data.regular<-merged.data[which(merged.data$SIZE == "REGULAR"),]
-barplot(table(merged.data.regular$VOL_EQ))
+merged.data.reduced<-merged.data.reduced[which(merged.data.reduced$PRODUCT.TYPE == "TOOTHPASTE"),]
+aggregate(merged.data.reduced$COUNT, by=list(PRODUCT.TYPES=merged.data.reduced$PRODUCT.TYPE), FUN=sum)
+merged.data.reduced$PRODUCT.TYPE<-factor(merged.data.reduced$PRODUCT.TYPE)
+# we should be able to just get rid of this column now
+levels(merged.data.reduced$PRODUCT.TYPE)
 ```
+
+
+
 ```{r}
 barplot(table(merged.data$SIZE))
 ```
+
+
 Hmm, maybe only do one "SIZE", then divide that up into "VOL_EQ"s
 
+
 ```{r}
-barplot(table(merged.data.regular$SIZE))
+merged.data.reduced<-merged.data.reduced[which(merged.data.reduced$SIZE == "REGULAR"),]
+merged.data.reduced$SIZE<-factor(merged.data.reduced$SIZE)
+levels(merged.data.reduced$SIZE)
+# we should be able to just get rid of this column now
+barplot(table(merged.data.reduced$VOL_EQ))
 ```
+
+Maybe get rid of MICRO and LARGE?
+
+Lets look at purchases per person:
+
+```{r}
+purchases.per.person<-aggregate(merged.data.reduced$COUNT, by=list(Person=merged.data.reduced$PANID), FUN=sum)
+
+barplot(table(as.factor(purchases.per.person$x)))
+
+```
+
+Hmm, there are a lot of people that only made 1 purchase.  Thats ok I guess.
+
+Lets get an average number of purchases a person made:
+
+```{r}
+mean(aggregate(merged.data.reduced$COUNT, by=list(Person=merged.data.reduced$PANID), FUN=sum)$x)
+
+```
+
 
 
 Lets look at for each person how many products in each brand type they purchased:
 
 ```{r}
-brands.by.person<-aggregate(merged.data$COUNT, by=list(Person=merged.data$PANID, Brand=merged.data$VEND), FUN=sum)
+brands.by.person<-aggregate(merged.data.reduced$COUNT, by=list(Person=merged.data.reduced$PANID, Brand=merged.data.reduced$VEND), FUN=sum)
 brands.by.person<-brands.by.person[order(brands.by.person$Person),]
-brands.by.person
+head(brands.by.person)
 ```
+
 How about number of brands a each person switched between:
 
 ```{r}
-brand.per.person<-aggregate(brands.by.person$x, by=list(Person=brands.by.person$Person), FUN=sum)
-brand.per.person
+brands.by.person$COUNT<-1
+brand.per.person<-aggregate(brands.by.person$COUNT, by=list(Person=brands.by.person$Person), FUN=sum)
+brand.per.person$x<-as.factor(brand.per.person$x)
 
-hist(brand.per.person$x)
+barplot(table(brand.per.person$x))
+```
+Shows that decent number of people switched between a few brands, but not many above 3.
+
+```{r}
+
+for (x in c(2:ncol(merged.data.reduced))) {
+  if (is.factor(merged.data.reduced[,x])) {
+    merged.data.reduced[,x]<-factor(merged.data.reduced[,x])
+    barplot(table(merged.data.reduced[x]), main = colnames(merged.data.reduced)[x])
+  }
+}
+
+# a lot of "MISSING" values on the COLOR plot, ignore for now
+
+```
+
+
+```{r}
+for (x in c(1:ncol(merged.data.reduced))) {
+  if (is.factor(merged.data.reduced[,x])) {
+    print(paste(colnames(merged.data.reduced)[x], "=", nlevels(merged.data.reduced[,x])))
+  }
+}
+
+```
+
+We can get rid of all the columns that have a only 1 factor:
+"Microwave.Owned.by.HH = 1"
+"EXT_FACT = 1"
+"STORE.LOCATION = 1"
+"PRODUCT.TYPE = 1"
+"SIZE = 1"
+
+```{r}
+cnames<-colnames(merged.data.reduced)
+cols.remove<-c(which(cnames == "Microwave.Owned.by.HH"),
+  which(cnames == "EXT_FACT"),
+  which(cnames == "STORE.LOCATION"),
+  which(cnames == "PRODUCT.TYPE"),
+  which(cnames == "SIZE"),
+  which(cnames == "COUNT"),
+  which(cnames == "ITEM"),
+  which(cnames == "VENDORITEMCOUNT"))
+
+merged.data.reduced<-merged.data.reduced[,-cols.remove]
+
+for (x in c(1:ncol(merged.data.reduced))) {
+  if (is.factor(merged.data.reduced[,x])) {
+    print(paste(colnames(merged.data.reduced)[x], "=", nlevels(merged.data.reduced[,x])))
+  }
+}
+
+```
+
+OK, now we have a pretty decent dataset, lets try a model:
+
+```{r}
+library("mlogit")
+
+head(merged.data.reduced)
+
+
+alevels<-c(levels(merged.data.reduced$VEND))
+cvars<-c(colnames(merged.data.reduced)[c(16:49)])
+vnames<-c(colnames(merged.data.reduced)[c(3:15)])
+# I don't think this is correct yet
+transformed.data<-mlogit.data(merged.data.reduced, shape = "wide", varying = 3:15, v.names=vnames, choice = "VEND", alt.levels = alevels, id.var = "PANID")
+
 ```
 
