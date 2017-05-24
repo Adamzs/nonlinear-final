@@ -150,6 +150,33 @@ barplot(table(brand.per.person$x))
 ```
 Shows that decent number of people switched between a few brands, but not many above 3.
 
+Compute brand loyalty:
+
+Equation used: BL3 := Total purchase level of brand i by household n during the whole time period / Total purchase level of the product category by household n during the whole time period.
+
+```{r}
+purchases.by.brand.per.household<-aggregate(merged.data.reduced$COUNT, by=list(Brand=merged.data.reduced$VEND, Household=merged.data.reduced$PANID), FUN=sum)
+total.purchases.per.household<-aggregate(purchases.by.brand.per.household$x, by=list(Household=purchases.by.brand.per.household$Household), FUN=sum)
+
+purchases.by.brand.per.household$loyalty<-0
+for (idx in c(1:nrow(purchases.by.brand.per.household))) {
+  house<-purchases.by.brand.per.household[idx,2]
+  total<-total.purchases.per.household[which(total.purchases.per.household[,1] == house),2]
+  purchases.by.brand.per.household[idx,4]<-purchases.by.brand.per.household$x[idx] / total
+}
+
+merged.data.reduced$LOYALTY<-0
+for (idx in c(1:nrow(merged.data.reduced))) {
+  brand<-merged.data.reduced$VEND[idx]
+  house<-merged.data.reduced$PANID[idx]
+  loyalty<-purchases.by.brand.per.household[which(purchases.by.brand.per.household$Household == house & purchases.by.brand.per.household$Brand == brand),]$loyalty
+  merged.data.reduced$LOYALTY[idx]<-loyalty
+}
+
+hist(merged.data.reduced$LOYALTY)
+```
+
+
 ```{r}
 
 for (x in c(2:ncol(merged.data.reduced))) {
@@ -162,6 +189,7 @@ for (x in c(2:ncol(merged.data.reduced))) {
 # a lot of "MISSING" values on the COLOR plot, ignore for now
 
 ```
+
 
 
 ```{r}
@@ -188,7 +216,6 @@ cols.remove<-c(which(cnames == "Microwave.Owned.by.HH"),
   which(cnames == "PRODUCT.TYPE"),
   which(cnames == "SIZE"),
   which(cnames == "COUNT"),
-  which(cnames == "ITEM"),
   which(cnames == "VENDORITEMCOUNT"))
 
 merged.data.reduced<-merged.data.reduced[,-cols.remove]
@@ -201,12 +228,55 @@ for (x in c(1:ncol(merged.data.reduced))) {
 
 ```
 
-OK, now we have a pretty decent dataset, lets try a model:
+To work with these utility function GAM models and mlogit models we need to create some alternative specific dummies.  Here is the code to do that. It creates a column for each brand alternate and puts a 1 in the column for the brand chosen for the row.
+
+```{r}
+merged.data.reduced.dummies<-merged.data.reduced
+#For every unique value in the string column, create a new 1/0 column
+#This is what Factors do "under-the-hood" automatically when passed to function requiring numeric data
+for(level in unique(merged.data.reduced.dummies$VEND)){
+  merged.data.reduced.dummies[paste("brand", level, sep = "_")] <- ifelse(merged.data.reduced.dummies$VEND == level, 1, 0)
+}
+
+merged.data.reduced.dummies
+```
+
+Number sold of each item:
+
+```{r}
+temp<-merged.data.reduced
+temp$COUNT<-1
+num.item.sold<-aggregate(temp$COUNT, by=list(Item=temp$ITEM), FUN=sum)
+num.item.sold[order(-num.item.sold$x),]
+hist(num.item.sold$x)
+
+nrow(num.item.sold[which(num.item.sold$x > 50),])
+```
+
+
+
+We can try a GAM utility function model with the merged.data.reduced.dummies data:
+
+```{r}
+
+```
+
+
+
+Or a multinomial logit model with the merged.data.reduce data:
 
 ```{r}
 library("mlogit")
 
 head(merged.data.reduced)
+
+# I don't think I'm understanding this so lets reduce our number of vars to make it easier
+merged.data.reduced.test<-merged.data.reduced[,c(1, 2, 5, 6, 7, 8, 9, 10, 11, 12)]
+
+merged.data.reduced.test
+
+# Hmm, the varyiables that are "alternative specific" are actually specific to the ITEM not the VEND/Brand.  So I think we need our "choices" to be on items?  
+# right now we have 328 items
 
 
 alevels<-c(levels(merged.data.reduced$VEND))
@@ -214,6 +284,8 @@ cvars<-c(colnames(merged.data.reduced)[c(16:49)])
 vnames<-c(colnames(merged.data.reduced)[c(3:15)])
 # I don't think this is correct yet
 transformed.data<-mlogit.data(merged.data.reduced, shape = "wide", varying = 3:15, v.names=vnames, choice = "VEND", alt.levels = alevels, id.var = "PANID")
+
+transformed.data
 
 ```
 
