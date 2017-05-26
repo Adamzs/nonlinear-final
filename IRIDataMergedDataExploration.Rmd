@@ -16,12 +16,13 @@ merged.data<-merged.data[,c(2:58)]
 merged.data$PANID<-as.factor(merged.data$PANID)
 merged.data$VEND<-as.factor(sprintf("%05d", merged.data$VEND))
 merged.data$ITEM<-as.factor(sprintf("%05d", merged.data$ITEM))
-merged.data$D<-as.factor(merged.data$D)
-merged.data$PR<-as.factor(merged.data$PR)
+merged.data$D<-as.integer(merged.data$D)
+merged.data$PR<-as.integer(merged.data$PR)
 # < 0.1, 0.1 < x < 0.26, 0.26 < x < 0.35, 0.35 < x < 0.3938, 0.3938 < x < 0.4894, 0.4894 < x < 0.675, 0.675+
 merged.data$VOL_EQ<-cut(merged.data$VOL_EQ, breaks = c(-Inf, 0.1, 0.26, 0.35, 0.3938, 0.4894, 0.675, Inf), labels = c("MICRO", "VERY_SMALL", "SMALL", "MEDIUM_SMALL", "MEDIUM", "MEDIUM_LARGE", "LARGE"))
 merged.data[c(22:57)]<-lapply(merged.data[c(22:57)], factor)
 
+merged.data
 ```
 
 Number of panelists:
@@ -241,6 +242,36 @@ for(level in unique(merged.data.reduced.dummies$VEND)){
 merged.data.reduced.dummies
 ```
 
+```{r}
+colnames(merged.data.reduced.dummies)[8]<-"FEATURE"
+colnames(merged.data.reduced.dummies)[9]<-"DISPLAY"
+colnames(merged.data.reduced.dummies)[10]<-"PRICEREDUCTION"
+
+cnames<-colnames(merged.data.reduced.dummies)
+cols.remove<-c(which(cnames == "UNITS"),
+  which(cnames == "VOL_EQ"),
+  which(cnames == "FLAVOR.SCENT"),
+  which(cnames == "FORM"),
+  which(cnames == "PACKAGE"),
+  which(cnames == "ADDITIVES"),
+  which(cnames == "TYPE.OF.FORMULAT"),
+  which(cnames == "COLOR"))
+
+merged.data.reduced.dummies<-merged.data.reduced.dummies[,-cols.remove]
+
+reduce.display<-aggregate(merged.data.reduced.dummies$DISPLAY, by=list(VEND=merged.data.reduced.dummies$VEND, WEEK=merged.data.reduced.dummies$WEEK), FUN=sum)
+reduce.display[which(reduce.display$x > 0),3]<-1
+reduce.display
+
+reduce.pr<-aggregate(merged.data.reduced.dummies$PRICEREDUCTION, by=list(VEND=merged.data.reduced.dummies$VEND, WEEK=merged.data.reduced.dummies$WEEK), FUN=sum)
+reduce.pr[which(reduce.pr$x > 0),3]<-1
+reduce.pr
+
+# so I think I should go back and do all this reduceing and such before I merge in all the panelist info
+
+```
+
+
 Number sold of each item:
 
 ```{r}
@@ -268,24 +299,43 @@ Or a multinomial logit model with the merged.data.reduce data:
 ```{r}
 library("mlogit")
 
-head(merged.data.reduced)
 
-# I don't think I'm understanding this so lets reduce our number of vars to make it easier
-merged.data.reduced.test<-merged.data.reduced[,c(1, 2, 5, 6, 7, 8, 9, 10, 11, 12)]
+#alevels<-c(levels(merged.data.reduced$VEND))
+#cvars<-c(colnames(merged.data.reduced)[c(16:49)])
+#vnames<-c(colnames(merged.data.reduced)[c(3:15)])
+#transformed.data<-mlogit.data(merged.data.reduced, shape = "wide", varying = 3:15, v.names=vnames, choice = "VEND", alt.levels = alevels, id.var = "PANID")
 
-merged.data.reduced.test
+#transformed.data
 
-# Hmm, the varyiables that are "alternative specific" are actually specific to the ITEM not the VEND/Brand.  So I think we need our "choices" to be on items?  
-# right now we have 328 items
+```
+
+aggregate if a promotion
+
+each item has a vendor column - feature item - if any true then - promotion
+price - do an average
+price per ounce and then average for brand.
+color
+
+price different for each of the observation - price 
+
+price of all items at different time points 
+every observatio happens at different time points so we need to have prices
+
+price.brand - loyalty.brand - feature.brand - pr.brand 
 
 
-alevels<-c(levels(merged.data.reduced$VEND))
-cvars<-c(colnames(merged.data.reduced)[c(16:49)])
-vnames<-c(colnames(merged.data.reduced)[c(3:15)])
-# I don't think this is correct yet
-transformed.data<-mlogit.data(merged.data.reduced, shape = "wide", varying = 3:15, v.names=vnames, choice = "VEND", alt.levels = alevels, id.var = "PANID")
+brand chars, price product, price of outside alternative, income
 
-transformed.data
+GAM is going to give
+
+
+confusion matrix - 
+
+
+Rachial, prianca and emily
+
+
+```{r}
 
 ```
 
