@@ -264,38 +264,40 @@ data.subset<-reduced.data[,c(1, 6, 13)]
 panelists.from.trans<-unique(data.subset$PANID)
 panelists.with.income<-panelists.with.income[which(panelists.with.income$PANID %in% panelists.from.trans),]
 
-test_panel_info <- panelists.with.income
-test_panel_info$PANID <- as.character(test_panel_info$PANID)
-test_data.subset <- data.subset
-test_data.subset$PANID <- as.character(test_data.subset$PANID)
-
-test_data.subset$VEND <- as.character(test_data.subset$VEND)
-test_panel_info$PANID <- as.character(test_panel_info$PANID)
-
 getLoyaltyByPanelistVendor <- function(vendor, panelist){
   return (data.subset[data.subset$VEND == vendor &
                                         data.subset$PANID == panelist,]$LOYALTY[1])
 }
 
-data.subset[data.subset$PANID == "1121723",]
-panelists.with.income[669,]$PANID
-paste("loyalty", "yu", sep="_")
-
-sapply(1:nrow(panelists.with.income), function(x) {getLoyaltyByPanelistVendor(vendor = 33200, panelist = panelists.with.income[x,]$PANID)})
 vendors<-unique(reduced.data$VEND)
 
 for(i in vendors){
   param <- paste("loyalty", i, sep="_")
-panelists.with.income <- panelists.with.income %>%
-  rowwise() %>%
-  mutate(dummy = getLoyaltyByPanelistVendor(vendor = i, panelist = PANID))
+  panelists.with.income <- panelists.with.income %>%
+    rowwise() %>%
+    mutate(dummy = getLoyaltyByPanelistVendor(vendor = i, panelist = PANID))
+  
   colnames(panelists.with.income)[ncol(panelists.with.income)]<-param
-
 }
-test <- merge(x=test_panel_info, y=test_data.subset[data.subset$VEND=="33200",], by=c("PANID"), all.x=TRUE)
 
-merge(x=data.subset, y=panelists.with.income, by=c("PANID", "WEEK"), all.x = TRUE)
+test<-panelists.with.income
+test[is.na(test)]<-0
 
+```
 
+```{r}
+
+for(level in unique(reduced.data$VEND)){
+  reduced.data[paste("brand", level, sep = "_")] <- ifelse(reduced.data$VEND == level, 1, 0)
+}
+
+brand.dummies.data<-reduced.data[,c(1, 5, 14:19)]
+test$WEEK<-as.factor(test$WEEK)
+test$PANID<-as.factor(test$PANID)
+
+brand.dummies.data$WEEK<-as.factor(brand.dummies.data$WEEK)
+brand.dummies.data$PANID<-as.factor(brand.dummies.data$PANID)
+
+all.data.combined<-merge(x=brand.dummies.data, y=test, by=c("PANID", "WEEK"), all.x=TRUE)
 ```
 
