@@ -125,7 +125,6 @@ for (idx in c(1:nrow(purchases.by.brand.per.household))) {
   total<-total.purchases.per.household[which(total.purchases.per.household[,1] == house),2]
   purchases.by.brand.per.household[idx,4]<-purchases.by.brand.per.household$x[idx] / total
 }
-purchases.by.brand.per.household
 
 reduced.data$LOYALTY<-0
 for (idx in c(1:nrow(reduced.data))) {
@@ -137,10 +136,6 @@ for (idx in c(1:nrow(reduced.data))) {
 
 hist(reduced.data$LOYALTY)
 barplot(table(reduced.data$VOL_EQ))
-
-reduced.data
-
-levels(reduced.data$FEATURE)
 
 ```
 
@@ -185,7 +180,7 @@ hist(reduced.data$PRICEREDUCTION)
 
 ```{r}
 # PRICE
-reduced.data$PRICE_PER_OUNCE<-reduced.data$UNIT_PRICE / reduced.data$VOL_EQ
+reduced.data$PRICE_PER_OUNCE<-(reduced.data$DOLLARS/reduced.data$UNITS) / reduced.data$VOL_EQ
 tpriceDf <- reduced.data %>% group_by(WEEK, VEND) %>% dplyr::summarise(AVG_RATE = mean(PRICE_PER_OUNCE))
 
 priceDf <- expand.grid(WEEK=c(min(tpriceDf$WEEK) : max(tpriceDf$WEEK)), VEND = unique(tpriceDf$VEND))
@@ -199,8 +194,6 @@ priceDf[which(priceDf$WEEK == 1427 & priceDf$VEND == 24291),3]<-7.92
 priceDf <- priceDf %>%
   group_by(VEND) %>% 
   mutate(AVG_RATE = na.locf(AVG_RATE, na.rm = T))
-
-
 
 
 ```
@@ -245,7 +238,6 @@ priceDfPR[which(priceDfPR$VEND == 24291),]
 
 ```{r}
 combined<-merge(x=merge(x=priceDf, y=priceDfDisplay, by=c("WEEK", "VEND"), all.x=TRUE), y=priceDfPR, by=c("WEEK", "VEND"), all.x=TRUE)
-combined
 ```
 
 ```{r}
@@ -299,5 +291,7 @@ brand.dummies.data$WEEK<-as.factor(brand.dummies.data$WEEK)
 brand.dummies.data$PANID<-as.factor(brand.dummies.data$PANID)
 
 all.data.combined<-merge(x=brand.dummies.data, y=test, by=c("PANID", "WEEK"), all.x=TRUE)
+
+all.data.combined
 ```
 
