@@ -1,0 +1,197 @@
+---
+title: "Untitled"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+
+```{r}
+trimspaces <- function(dat) {
+  dat$COLUPC<-trimws(dat$COLUPC)
+  dat$WEEK<-trimws(dat$WEEK)
+  dat$IRI_KEY<-trimws(dat$IRI_KEY)
+  return (dat)
+}
+
+combineupc <- function(dat) {
+  dat$COLUPC<-paste(sprintf("%02d", dat$SY), dat$GE, sprintf("%05d", dat$VEND), sprintf("%05d", dat$ITEM), sep="")
+  return (dat)
+}
+```
+
+
+
+```{r}
+panel.dk = read.table("data\\toothpa_PANEL_DR_1427_1478.DAT", sep="", header = TRUE, na.strings="", stringsAsFactors = F, colClasses = c(rep("character",4),"numeric", "character", "character")) 
+panel.dk<-trimspaces(panel.dk)
+panel.gk = read.table("data\\toothpa_PANEL_GR_1427_1478.DAT", sep="", header = TRUE, na.strings="", stringsAsFactors = F, colClasses = c(rep("character",4),"numeric", "character", "character"))
+panel.gk<-trimspaces(panel.gk)
+panel.mk = read.table("data\\toothpa_PANEL_MA_1427_1478.DAT", sep="", header = TRUE, na.strings="", stringsAsFactors = F, colClasses = c(rep("character",4),"numeric", "character", "character"))
+panel.mk<-trimspaces(panel.mk)
+
+panel.all<-rbind(panel.dk, panel.gk, panel.mk)
+```
+
+
+```{r}
+trans.groc = read.table("data\\toothpa_groc_1427_1478", sep="", header = TRUE, na.strings="", stringsAsFactors = F, colClasses = c(rep("character",2),rep("numeric", 6), "character", "numeric", "numeric"))
+trans.groc<-combineupc(trans.groc)
+trans.groc<-trimspaces(trans.groc)
+
+trans.drug = read.table("data\\toothpa_drug_1427_1478", sep="", header = TRUE, na.strings="", stringsAsFactors = F, colClasses = c(rep("character",2),rep("numeric", 6), "character", "numeric", "numeric"))
+trans.drug<-combineupc(trans.drug)
+trans.drug<-trimspaces(trans.drug)
+
+trans.all<-rbind(trans.groc, trans.drug)
+```
+
+
+```{r}
+prod.attr = read.csv("toothpa_prod_attr.csv", header = TRUE)
+prod.attr$COLUPC<-paste(sprintf("%02d", prod.attr$SY), prod.attr$GE, sprintf("%05d", prod.attr$VEND), sprintf("%05d", prod.attr$ITEM), sep="")
+```
+
+
+```{r}
+joined.one<-merge(x=panel.all, y=trans.all, by=c("COLUPC", "IRI_KEY", "WEEK"))
+joined.all<-merge(joined.one, prod.attr, by=c("COLUPC"))
+```
+
+```{r}
+levels(joined.all$SIZE)[8]<-"REGULAR"
+
+reduced.data<-data.frame(PANID=as.factor(joined.all$PANID), 
+                         UNITS=as.double(joined.all$UNITS.x), 
+                         OUTLET=as.factor(joined.all$OUTLET), 
+                         DOLLARS=as.double(joined.all$DOLLARS.x),
+                         WEEK=as.double(joined.all$WEEK),
+                         VEND=as.factor(joined.all$VEND.x), 
+                         ITEM=as.factor(joined.all$ITEM.x), 
+                         FEATURE=as.factor(joined.all$F), 
+                         DISPLAY=joined.all$D, 
+                         PRICEREDUCTION=joined.all$PR, 
+                         VOL_EQ=joined.all$VOL_EQ, 
+                         SIZE=joined.all$SIZE,
+#                         FLAVOR.SCENT=joined.all$FLAVOR.SCENT, 
+#                         FORM=joined.all$FORM, 
+#                         PACKAGE=joined.all$PACKAGE, 
+                         PRODUCT.TYPE=joined.all$PRODUCT.TYPE 
+#                         TYPE.OF.FORMULAT=joined.all$TYPE.OF.FORMULA
+                         )
+
+```
+
+
+```{r}
+reduced.data$COUNT<-1
+
+vendor.counts<-aggregate(reduced.data$COUNT, by=list(Brand<-reduced.data$VEND), FUN=sum)
+#lets take anything above 30
+brands<-vendor.counts[which(vendor.counts$x > 31),1]
+reduced.data<-reduced.data[which(reduced.data$VEND %in% brands),]
+reduced.data$VEND<-factor(reduced.data$VEND)
+
+reduced.data<-reduced.data[which(reduced.data$PRODUCT.TYPE == "TOOTHPASTE"),]
+reduced.data$PRODUCT.TYPE<-factor(reduced.data$PRODUCT.TYPE)
+
+reduced.data<-reduced.data[which(reduced.data$SIZE == "REGULAR"),]
+reduced.data$SIZE<-factor(reduced.data$SIZE)
+
+#get rid of size and product type now
+cnames<-colnames(reduced.data)
+cols.remove<-c(which(cnames == "SIZE"), which(cnames == "PRODUCT.TYPE"))
+reduced.data<-reduced.data[,-cols.remove]
+
+```
+
+```{r}
+purchases.by.brand.per.household<-aggregate(reduced.data$COUNT, by=list(Brand=reduced.data$VEND, Household=reduced.data$PANID), FUN=sum)
+total.purchases.per.household<-aggregate(purchases.by.brand.per.household$x, by=list(Household=purchases.by.brand.per.household$Household), FUN=sum)
+
+purchases.by.brand.per.household$loyalty<-0
+for (idx in c(1:nrow(purchases.by.brand.per.household))) {
+  house<-purchases.by.brand.per.household[idx,2]
+  total<-total.purchases.per.household[which(total.purchases.per.household[,1] == house),2]
+  purchases.by.brand.per.household[idx,4]<-purchases.by.brand.per.household$x[idx] / total
+}
+
+reduced.data$LOYALTY<-0
+for (idx in c(1:nrow(reduced.data))) {
+  brand<-reduced.data$VEND[idx]
+  house<-reduced.data$PANID[idx]
+  loyalty<-purchases.by.brand.per.household[which(purchases.by.brand.per.household$Household == house & purchases.by.brand.per.household$Brand == brand),]$loyalty
+  reduced.data$LOYALTY[idx]<-loyalty
+}
+
+hist(reduced.data$LOYALTY)
+barplot(table(reduced.data$VOL_EQ))
+
+reduced.data
+
+levels(reduced.data$FEATURE)
+
+```
+
+```{r}
+hist(reduced.data$DISPLAY)
+
+reduce.display<-aggregate(reduced.data$DISPLAY, by=list(VEND=reduced.data$VEND, WEEK=reduced.data$WEEK), FUN=sum)
+reduce.display[which(reduce.display$x > 0),3]<-1
+
+hist(reduce.display$x)
+
+reduced.data$DISPLAY<-NA
+# now replace all the DISPLAY values in our dataset with the weekly avereage for the vendor
+for (idx in c(1:nrow(reduced.data))) {
+  brand<-reduced.data$VEND[idx]
+  week<-reduced.data$WEEK[idx]
+  av.display<-reduce.display[which(reduce.display$WEEK == week & reduce.display$VEND == brand),]$x
+  reduced.data$DISPLAY[idx]<-av.display
+}
+
+# shows that comparitively not many individual items had a display, but usually at least one item from a particular brand had a display
+hist(reduced.data$DISPLAY)
+
+
+hist(reduced.data$PRICEREDUCTION)
+
+reduce.pr<-aggregate(reduced.data$PRICEREDUCTION, by=list(VEND=reduced.data$VEND, WEEK=reduced.data$WEEK), FUN=sum)
+reduce.pr[which(reduce.pr$x > 0),3]<-1
+
+reduced.data$PRICEREDUCTION<-NA
+for (idx in c(1:nrow(reduced.data))) {
+  brand<-reduced.data$VEND[idx]
+  week<-reduced.data$WEEK[idx]
+  av.pr<-reduce.display[which(reduce.display$WEEK == week & reduce.display$VEND == brand),]$x
+  reduced.data$PRICEREDUCTION[idx]<-av.pr
+}
+
+# same with price reduction
+hist(reduced.data$PRICEREDUCTION)
+```
+
+```{r}
+# we need to deal with price, first get unit price
+reduced.data$UNIT_PRICE<-reduced.data$DOLLARS / reduced.data$UNITS
+hist(reduced.data$UNIT_PRICE)
+# now get price per ounce
+reduced.data$PPO<-reduced.data$UNIT_PRICE / reduced.data$VOL_EQ
+hist(reduced.data$PPO)
+
+weekly.av.ppo<-aggregate(reduced.data$PPO, by=list(VEND=reduced.data$VEND, WEEK=reduced.data$WEEK), FUN=mean)
+weekly.av.ppo
+for (idx in c(1:nrow(reduced.data))) {
+  brand<-reduced.data$VEND[idx]
+  week<-reduced.data$WEEK[idx]
+  av.ppo<-weekly.av.ppo[which(weekly.av.ppo$WEEK == week & weekly.av.ppo$VEND == brand),]$x
+  reduced.data$PPO[idx]<-av.ppo
+}
+
+reduced.data
+
+```
+
