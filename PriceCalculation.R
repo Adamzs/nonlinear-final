@@ -4,6 +4,7 @@ library(dplyr)
 require(utils)
 library(zoo)
 
+
 trans.groc = read.table("data/toothpa_groc_1427_1478", sep="", header = TRUE, na.strings="", stringsAsFactors = F, colClasses = c(rep("character",2),rep("numeric", 6), "character", "numeric", "numeric"))
 trans.groc<-combineupc(trans.groc)
 trans.groc<-trimspaces(trans.groc)

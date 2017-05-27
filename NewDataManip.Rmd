@@ -5,6 +5,13 @@ output: html_document
 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
+
+library(plyr)
+library(dplyr)
+
+require(utils)
+library(zoo)
+
 ```
 
 
@@ -90,8 +97,8 @@ reduced.data<-data.frame(PANID=as.factor(joined.all$PANID),
 reduced.data$COUNT<-1
 
 vendor.counts<-aggregate(reduced.data$COUNT, by=list(Brand<-reduced.data$VEND), FUN=sum)
-#lets take anything above 30
-brands<-vendor.counts[which(vendor.counts$x > 31),1]
+#lets take anything above 40
+brands<-vendor.counts[which(vendor.counts$x > 40),1]
 reduced.data<-reduced.data[which(reduced.data$VEND %in% brands),]
 reduced.data$VEND<-factor(reduced.data$VEND)
 
@@ -118,6 +125,7 @@ for (idx in c(1:nrow(purchases.by.brand.per.household))) {
   total<-total.purchases.per.household[which(total.purchases.per.household[,1] == house),2]
   purchases.by.brand.per.household[idx,4]<-purchases.by.brand.per.household$x[idx] / total
 }
+purchases.by.brand.per.household
 
 reduced.data$LOYALTY<-0
 for (idx in c(1:nrow(reduced.data))) {
@@ -174,24 +182,120 @@ for (idx in c(1:nrow(reduced.data))) {
 hist(reduced.data$PRICEREDUCTION)
 ```
 
-```{r}
-# we need to deal with price, first get unit price
-reduced.data$UNIT_PRICE<-reduced.data$DOLLARS / reduced.data$UNITS
-hist(reduced.data$UNIT_PRICE)
-# now get price per ounce
-reduced.data$PPO<-reduced.data$UNIT_PRICE / reduced.data$VOL_EQ
-hist(reduced.data$PPO)
 
-weekly.av.ppo<-aggregate(reduced.data$PPO, by=list(VEND=reduced.data$VEND, WEEK=reduced.data$WEEK), FUN=mean)
-weekly.av.ppo
-for (idx in c(1:nrow(reduced.data))) {
-  brand<-reduced.data$VEND[idx]
-  week<-reduced.data$WEEK[idx]
-  av.ppo<-weekly.av.ppo[which(weekly.av.ppo$WEEK == week & weekly.av.ppo$VEND == brand),]$x
-  reduced.data$PPO[idx]<-av.ppo
+```{r}
+# PRICE
+reduced.data$PRICE_PER_OUNCE<-reduced.data$UNIT_PRICE / reduced.data$VOL_EQ
+tpriceDf <- reduced.data %>% group_by(WEEK, VEND) %>% dplyr::summarise(AVG_RATE = mean(PRICE_PER_OUNCE))
+
+priceDf <- expand.grid(WEEK=c(min(tpriceDf$WEEK) : max(tpriceDf$WEEK)), VEND = unique(tpriceDf$VEND))
+
+priceDf <- merge(x=priceDf, y=tpriceDf, by=c("WEEK", "VEND"), all.x=TRUE)
+
+priceDf <- priceDf[order(priceDf$VEND, priceDf$WEEK),]
+
+priceDf[which(priceDf$WEEK == 1427 & priceDf$VEND == 24291),3]<-7.92
+
+priceDf <- priceDf %>%
+  group_by(VEND) %>% 
+  mutate(AVG_RATE = na.locf(AVG_RATE, na.rm = T))
+
+
+
+
+```
+
+```{r}
+# DISPLAY
+priceDfDisplay <- expand.grid(WEEK=c(min(reduced.data$WEEK) : max(reduced.data$WEEK)), VEND = unique(reduced.data$VEND))
+disp.data <- unique(reduced.data[,c(5, 6, 9)])
+priceDfDisplay <- merge(x=priceDfDisplay, y=disp.data, by=c("WEEK", "VEND"), all.x=TRUE)
+
+priceDfDisplay[which(priceDfDisplay$WEEK == 1427 & priceDfDisplay$VEND == 24291),3]<-0
+
+priceDfDisplay[which(priceDfDisplay$VEND == 24291),]
+
+priceDfDisplay <- priceDfDisplay %>%
+  group_by(VEND) %>% 
+  mutate(DISPLAY = na.locf(DISPLAY, na.rm = T))
+
+priceDfDisplay[which(priceDfDisplay$VEND == 24291),]
+
+```
+
+```{r}
+# PRICEREDUCTION
+priceDfPR <- expand.grid(WEEK=c(min(reduced.data$WEEK) : max(reduced.data$WEEK)), VEND = unique(reduced.data$VEND))
+pr.data <- unique(reduced.data[,c(5, 6, 10)])
+priceDfPR <- merge(x=priceDfPR, y=pr.data, by=c("WEEK", "VEND"), all.x=TRUE)
+
+priceDfPR[which(priceDfPR$WEEK == 1427 & priceDfPR$VEND == 24291),3]<-0
+
+priceDfPR[which(priceDfPR$VEND == 24291),]
+
+priceDfPR <- priceDfPR %>%
+  group_by(VEND) %>% 
+  mutate(PRICEREDUCTION = na.locf(PRICEREDUCTION, na.rm = T))
+
+priceDfPR[which(priceDfPR$VEND == 24291),]
+
+
+```
+
+
+```{r}
+combined<-merge(x=merge(x=priceDf, y=priceDfDisplay, by=c("WEEK", "VEND"), all.x=TRUE), y=priceDfPR, by=c("WEEK", "VEND"), all.x=TRUE)
+combined
+```
+
+```{r}
+
+panelist.attrs = read.csv("data\\DEMOS_1322_1373.csv", header = TRUE)
+names(panelist.attrs)[1]<-"PANID"
+reduced.data.test<-merge(reduced.data, panelist.attrs, by=c("PANID"))
+
+panelist.attrs$MALE_SMOKE[which(panelist.attrs$MALE_SMOKE == ".")]<-0
+
+attrs.reduced<-panelist.attrs[,c(1, 3, 15)]
+panelists<-reduced.data[,c(1, 5)]
+panelists.with.income<-merge(x=panelists, y=attrs.reduced, by=c("PANID"), all.x = TRUE)
+
+data.subset<-reduced.data[,c(1, 6, 13)]
+panelists.from.trans<-unique(data.subset$PANID)
+panelists.with.income<-panelists.with.income[which(panelists.with.income$PANID %in% panelists.from.trans),]
+
+test_panel_info <- panelists.with.income
+test_panel_info$PANID <- as.character(test_panel_info$PANID)
+test_data.subset <- data.subset
+test_data.subset$PANID <- as.character(test_data.subset$PANID)
+
+test_data.subset$VEND <- as.character(test_data.subset$VEND)
+test_panel_info$PANID <- as.character(test_panel_info$PANID)
+
+getLoyaltyByPanelistVendor <- function(vendor, panelist){
+  return (data.subset[data.subset$VEND == vendor &
+                                        data.subset$PANID == panelist,]$LOYALTY[1])
 }
 
-reduced.data
+data.subset[data.subset$PANID == "1121723",]
+panelists.with.income[669,]$PANID
+paste("loyalty", "yu", sep="_")
+
+sapply(1:nrow(panelists.with.income), function(x) {getLoyaltyByPanelistVendor(vendor = 33200, panelist = panelists.with.income[x,]$PANID)})
+vendors<-unique(reduced.data$VEND)
+
+for(i in vendors){
+  param <- paste("loyalty", i, sep="_")
+panelists.with.income <- panelists.with.income %>%
+  rowwise() %>%
+  mutate(dummy = getLoyaltyByPanelistVendor(vendor = i, panelist = PANID))
+  colnames(panelists.with.income)[ncol(panelists.with.income)]<-param
+
+}
+test <- merge(x=test_panel_info, y=test_data.subset[data.subset$VEND=="33200",], by=c("PANID"), all.x=TRUE)
+
+merge(x=data.subset, y=panelists.with.income, by=c("PANID", "WEEK"), all.x = TRUE)
+
 
 ```
 
