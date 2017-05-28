@@ -318,6 +318,6 @@ all.data.combined$brand_33200_pricereduction <- NULL
 
 all.data.combined$PRICE_PER_OUNCE <- NULL
 
-write.csv(all.data.combined, file="data/finaldata.csv")
+write.csv(all.data.combined, file="finaldata.csv")
 ```
 
