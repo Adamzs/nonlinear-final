@@ -96,12 +96,6 @@ reduced.data<-data.frame(PANID=as.factor(joined.all$PANID),
 ```{r}
 reduced.data$COUNT<-1
 
-vendor.counts<-aggregate(reduced.data$COUNT, by=list(Brand<-reduced.data$VEND), FUN=sum)
-#lets take anything above 40
-brands<-vendor.counts[which(vendor.counts$x > 40),1]
-reduced.data<-reduced.data[which(reduced.data$VEND %in% brands),]
-reduced.data$VEND<-factor(reduced.data$VEND)
-
 reduced.data<-reduced.data[which(reduced.data$PRODUCT.TYPE == "TOOTHPASTE"),]
 reduced.data$PRODUCT.TYPE<-factor(reduced.data$PRODUCT.TYPE)
 
@@ -112,6 +106,13 @@ reduced.data$SIZE<-factor(reduced.data$SIZE)
 cnames<-colnames(reduced.data)
 cols.remove<-c(which(cnames == "SIZE"), which(cnames == "PRODUCT.TYPE"))
 reduced.data<-reduced.data[,-cols.remove]
+
+vendor.counts<-aggregate(reduced.data$COUNT, by=list(Brand<-reduced.data$VEND), FUN=sum)
+#lets take anything above 40
+brands<-as.character(vendor.counts[which(vendor.counts$x > 40),1])
+# 
+# reduced.data<-reduced.data[which(reduced.data$VEND %in% brands),]
+# reduced.data$VEND<-factor(reduced.data$VEND)
 
 ```
 
@@ -183,7 +184,7 @@ hist(reduced.data$PRICEREDUCTION)
 reduced.data$PRICE_PER_OUNCE<-(reduced.data$DOLLARS/reduced.data$UNITS) / reduced.data$VOL_EQ
 tpriceDf <- reduced.data %>% group_by(WEEK, VEND) %>% dplyr::summarise(AVG_RATE = mean(PRICE_PER_OUNCE))
 
-priceDf <- expand.grid(WEEK=c(min(tpriceDf$WEEK) : max(tpriceDf$WEEK)), VEND = unique(tpriceDf$VEND))
+priceDf <- expand.grid(WEEK=c(min(tpriceDf$WEEK) : max(tpriceDf$WEEK)), VEND = brands)
 
 priceDf <- merge(x=priceDf, y=tpriceDf, by=c("WEEK", "VEND"), all.x=TRUE)
 
@@ -200,7 +201,7 @@ priceDf <- priceDf %>%
 
 ```{r}
 # DISPLAY
-priceDfDisplay <- expand.grid(WEEK=c(min(reduced.data$WEEK) : max(reduced.data$WEEK)), VEND = unique(reduced.data$VEND))
+priceDfDisplay <- expand.grid(WEEK=c(min(reduced.data$WEEK) : max(reduced.data$WEEK)), VEND = brands)
 disp.data <- unique(reduced.data[,c(5, 6, 9)])
 priceDfDisplay <- merge(x=priceDfDisplay, y=disp.data, by=c("WEEK", "VEND"), all.x=TRUE)
 
@@ -218,7 +219,7 @@ priceDfDisplay[which(priceDfDisplay$VEND == 24291),]
 
 ```{r}
 # PRICEREDUCTION
-priceDfPR <- expand.grid(WEEK=c(min(reduced.data$WEEK) : max(reduced.data$WEEK)), VEND = unique(reduced.data$VEND))
+priceDfPR <- expand.grid(WEEK=c(min(reduced.data$WEEK) : max(reduced.data$WEEK)), VEND = brands)
 pr.data <- unique(reduced.data[,c(5, 6, 10)])
 priceDfPR <- merge(x=priceDfPR, y=pr.data, by=c("WEEK", "VEND"), all.x=TRUE)
 
@@ -261,7 +262,7 @@ getLoyaltyByPanelistVendor <- function(vendor, panelist){
                                         data.subset$PANID == panelist,]$LOYALTY[1])
 }
 
-vendors<-unique(reduced.data$VEND)
+vendors<-brands
 
 for(i in vendors){
   param <- paste("loyalty", i, sep="_")
@@ -279,11 +280,11 @@ test[is.na(test)]<-0
 
 ```{r}
 
-for(level in unique(reduced.data$VEND)){
+for(level in brands){
   reduced.data[paste("brand", level, sep = "_")] <- ifelse(reduced.data$VEND == level, 1, 0)
 }
 
-brand.dummies.data<-reduced.data[,c(1, 5, 14:19)]
+brand.dummies.data<-reduced.data[,c(1, 5, 14:20)]
 test$WEEK<-as.factor(test$WEEK)
 test$PANID<-as.factor(test$PANID)
 
@@ -303,7 +304,7 @@ getVendParamByWeek <- function(vendor, week, param, value){
                   combined$WEEK == week,param][1])
 }
 
-for(i in vendors){
+for(i in brands){
   avgRateParam <- paste("brand", i, "AVG_RATE", sep="_")
   displayParam <- paste("brand", i, "DISPLAY", sep="_")
   pricereductionParam <- paste("brand", i, "PRICEREDUCTION", sep="_")
@@ -312,12 +313,20 @@ for(i in vendors){
   all.data.combined[,pricereductionParam] <- sapply(1:nrow(all.data.combined), function(x) { getVendParamByWeek(vendor = i, week = all.data.combined[x,]$WEEK, param = "PRICEREDUCTION")})
 }
   
-all.data.combined$brand_33200_avg_rate <- NULL
-all.data.combined$brand_33200_display <- NULL
-all.data.combined$brand_33200_pricereduction <- NULL
 
 all.data.combined$PRICE_PER_OUNCE <- NULL
 
+all.data.combined$choice <- paste(all.data.combined$brand_10158, all.data.combined$brand_33200, all.data.combined$brand_35000, all.data.combined$brand_37000, all.data.combined$brand_53100, all.data.combined$brand_77326, sep="")
+
+all.data.combined[all.data.combined$choice == "000000",]$choice <- 0
+all.data.combined[all.data.combined$choice == "100000",]$choice <- 1
+all.data.combined[all.data.combined$choice == "010000",]$choice <- 2
+all.data.combined[all.data.combined$choice == "001000",]$choice <- 3
+all.data.combined[all.data.combined$choice == "000100",]$choice <- 4
+all.data.combined[all.data.combined$choice == "000010",]$choice <- 5
+all.data.combined[all.data.combined$choice == "000001",]$choice <- 6
+
 write.csv(all.data.combined, file="finaldata.csv")
+
 ```
 
