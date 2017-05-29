@@ -1,0 +1,79 @@
+---
+title: "MNL Model"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+```{r}
+final.data = read.csv("finaldata.csv", header = TRUE)
+
+colnames(final.data)[12]<-"loyalty.10158"
+colnames(final.data)[13]<-"loyalty.33200"
+colnames(final.data)[14]<-"loyalty.35000"
+colnames(final.data)[15]<-"loyalty.37000"
+colnames(final.data)[16]<-"loyalty.53100"
+colnames(final.data)[17]<-"loyalty.77326"
+
+colnames(final.data)[18]<-"ppo.10158"
+colnames(final.data)[19]<-"display.10158"
+colnames(final.data)[20]<-"pricereduction.10158"
+
+colnames(final.data)[21]<-"ppo.33200"
+colnames(final.data)[22]<-"display.33200"
+colnames(final.data)[23]<-"pricereduction.33200"
+
+colnames(final.data)[24]<-"ppo.35000"
+colnames(final.data)[25]<-"display.35000"
+colnames(final.data)[26]<-"pricereduction.35000"
+
+colnames(final.data)[27]<-"ppo.37000"
+colnames(final.data)[28]<-"display.37000"
+colnames(final.data)[29]<-"pricereduction.37000"
+
+colnames(final.data)[30]<-"ppo.53100"
+colnames(final.data)[31]<-"display.53100"
+colnames(final.data)[32]<-"pricereduction.53100"
+
+colnames(final.data)[33]<-"ppo.77326"
+colnames(final.data)[34]<-"display.77326"
+colnames(final.data)[35]<-"pricereduction.77326"
+
+```
+
+
+```{r}
+library(mlogit)
+colnames(final.data)
+
+final.data$choice<-as.factor(final.data$choice)
+levels(final.data$choice)
+
+final.data[which(final.data$choice == 0),]
+
+final.data<-final.data[,c(2, 36, 12, 13, 14, 15, 16, 17, 18, 21, 24, 27, 30, 33, 19, 22, 25, 28, 31, 34, 20, 23, 26, 29, 32, 35, 10, 11)]
+mldata <- mlogit.data(final.data, shape = "wide", choice = "choice", varying = 3:26, sep = ".", alt.levels = c(0:6), id = "PANID")
+#final.data<-final.data[,c(36, 12, 13, 14, 15, 16, 17, 18, 21, 24, 27, 30, 33, 19, 22, 25, 28, 31, 34, 20, 23, 26, 29, 32, 35, 10, 11)]
+#mldata <- mlogit.data(final.data, shape = "wide", choice = "choice", varying = 2:25, sep = ".", alt.levels = c(0:6))
+
+head(mldata, n = 20)
+```
+```{r}
+waschoicemade<-aggregate(mldata$choice, by=list(mldata$chid), FUN=any)
+nochoices<-waschoicemade[which(waschoicemade$x == FALSE),]
+nochoicegroups<-c(nochoices$Group.1)
+mldata<-mldata[-which(mldata$chid %in% nochoicegroups),]
+```
+
+
+
+```{r}
+mldata$choice
+mod1<-mlogit(choice~ppo + loyalty + display | -1, mldata)
+
+summary(mod1)
+```
+
