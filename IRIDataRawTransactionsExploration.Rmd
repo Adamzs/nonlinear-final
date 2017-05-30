@@ -4,6 +4,18 @@ output: html_document
 ---
 
 ```{r setup, include=FALSE}
+trimspaces <- function(dat) {
+  dat$COLUPC<-trimws(dat$COLUPC)
+  dat$WEEK<-trimws(dat$WEEK)
+  dat$IRI_KEY<-trimws(dat$IRI_KEY)
+  return (dat)
+}
+
+combineupc <- function(dat) {
+  dat$COLUPC<-paste(sprintf("%02d", dat$SY), dat$GE, sprintf("%05d", dat$VEND), sprintf("%05d", dat$ITEM), sep="")
+  return (dat)
+}
+
 trans.all = read.table("data\\toothpa_groc_1427_1478", sep="", header = TRUE, na.strings="", stringsAsFactors = F, colClasses = c(rep("character",2),rep("numeric", 6), "character", "numeric", "numeric"))
 trans.all<-combineupc(trans.all)
 trans.all<-trimspaces(trans.all)

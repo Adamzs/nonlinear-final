@@ -1,0 +1,227 @@
+---
+title: "Create Graphs for Presentation"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+library(plyr)
+library(dplyr)
+
+require(utils)
+library(zoo)
+library(mgcv)
+library(mlogit)
+
+```
+
+
+
+```{r}
+trimspaces <- function(dat) {
+  dat$COLUPC<-trimws(dat$COLUPC)
+  dat$WEEK<-trimws(dat$WEEK)
+  dat$IRI_KEY<-trimws(dat$IRI_KEY)
+  return (dat)
+}
+
+combineupc <- function(dat) {
+  dat$COLUPC<-paste(sprintf("%02d", dat$SY), dat$GE, sprintf("%05d", dat$VEND), sprintf("%05d", dat$ITEM), sep="")
+  return (dat)
+}
+```
+
+
+
+```{r}
+panel.dk = read.table("data/toothpa_PANEL_DR_1427_1478.DAT", sep="", header = TRUE, na.strings="", stringsAsFactors = F, colClasses = c(rep("character",4),"numeric", "character", "character")) 
+panel.dk<-trimspaces(panel.dk)
+panel.gk = read.table("data/toothpa_PANEL_GR_1427_1478.DAT", sep="", header = TRUE, na.strings="", stringsAsFactors = F, colClasses = c(rep("character",4),"numeric", "character", "character"))
+panel.gk<-trimspaces(panel.gk)
+panel.mk = read.table("data/toothpa_PANEL_MA_1427_1478.DAT", sep="", header = TRUE, na.strings="", stringsAsFactors = F, colClasses = c(rep("character",4),"numeric", "character", "character"))
+panel.mk<-trimspaces(panel.mk)
+
+panel.all<-rbind(panel.dk, panel.gk, panel.mk)
+```
+
+
+```{r}
+trans.groc = read.table("data/toothpa_groc_1427_1478", sep="", header = TRUE, na.strings="", stringsAsFactors = F, colClasses = c(rep("character",2),rep("numeric", 6), "character", "numeric", "numeric"))
+trans.groc<-combineupc(trans.groc)
+trans.groc<-trimspaces(trans.groc)
+
+trans.drug = read.table("data/toothpa_drug_1427_1478", sep="", header = TRUE, na.strings="", stringsAsFactors = F, colClasses = c(rep("character",2),rep("numeric", 6), "character", "numeric", "numeric"))
+trans.drug<-combineupc(trans.drug)
+trans.drug<-trimspaces(trans.drug)
+
+trans.all<-rbind(trans.groc, trans.drug)
+
+#nrow(trans.all)
+```
+
+
+```{r}
+prod.attr = read.csv("toothpa_prod_attr.csv", header = TRUE)
+prod.attr$COLUPC<-paste(sprintf("%02d", prod.attr$SY), prod.attr$GE, sprintf("%05d", prod.attr$VEND), sprintf("%05d", prod.attr$ITEM), sep="")
+
+#nlevels(as.factor(prod.attr$ITEM))
+
+```
+
+
+```{r}
+joined.one<-merge(x=panel.all, y=trans.all, by=c("COLUPC", "IRI_KEY", "WEEK"))
+joined.all<-merge(joined.one, prod.attr, by=c("COLUPC"))
+```
+
+```{r}
+levels(joined.all$SIZE)[8]<-"REGULAR"
+
+reduced.data<-data.frame(PANID=as.factor(joined.all$PANID), 
+                         UNITS=as.double(joined.all$UNITS.x), 
+                         OUTLET=as.factor(joined.all$OUTLET), 
+                         DOLLARS=as.double(joined.all$DOLLARS.x),
+                         WEEK=as.double(joined.all$WEEK),
+                         VEND=as.factor(joined.all$VEND.x), 
+                         ITEM=as.factor(joined.all$ITEM.x), 
+                         FEATURE=as.factor(joined.all$F), 
+                         DISPLAY=joined.all$D, 
+                         PRICEREDUCTION=joined.all$PR, 
+                         VOL_EQ=joined.all$VOL_EQ, 
+                         SIZE=joined.all$SIZE,
+                         PRODUCT.TYPE=joined.all$PRODUCT.TYPE 
+                         )
+
+```
+
+
+```{r}
+reduced.data$COUNT<-1
+
+reduced.data<-reduced.data[which(reduced.data$PRODUCT.TYPE == "TOOTHPASTE"),]
+reduced.data$PRODUCT.TYPE<-factor(reduced.data$PRODUCT.TYPE)
+
+reduced.data<-reduced.data[which(reduced.data$SIZE == "REGULAR"),]
+reduced.data$SIZE<-factor(reduced.data$SIZE)
+
+#get rid of size and product type now
+cnames<-colnames(reduced.data)
+cols.remove<-c(which(cnames == "SIZE"), which(cnames == "PRODUCT.TYPE"))
+reduced.data<-reduced.data[,-cols.remove]
+
+vendor.counts<-aggregate(reduced.data$COUNT, by=list(Brand<-reduced.data$VEND), FUN=sum)
+#lets take anything above 40
+brands<-as.character(vendor.counts[which(vendor.counts$x > 40),1])
+# 
+# reduced.data<-reduced.data[which(reduced.data$VEND %in% brands),]
+# reduced.data$VEND<-factor(reduced.data$VEND)
+
+```
+
+```{r}
+purchases.by.brand.per.household<-aggregate(reduced.data$COUNT, by=list(Brand=reduced.data$VEND, Household=reduced.data$PANID), FUN=sum)
+total.purchases.per.household<-aggregate(purchases.by.brand.per.household$x, by=list(Household=purchases.by.brand.per.household$Household), FUN=sum)
+
+purchases.by.brand.per.household$loyalty<-0
+for (idx in c(1:nrow(purchases.by.brand.per.household))) {
+  house<-purchases.by.brand.per.household[idx,2]
+  total<-total.purchases.per.household[which(total.purchases.per.household[,1] == house),2]
+  purchases.by.brand.per.household[idx,4]<-purchases.by.brand.per.household$x[idx] / total
+}
+
+reduced.data$LOYALTY<-0
+for (idx in c(1:nrow(reduced.data))) {
+  brand<-reduced.data$VEND[idx]
+  house<-reduced.data$PANID[idx]
+  loyalty<-purchases.by.brand.per.household[which(purchases.by.brand.per.household$Household == house & purchases.by.brand.per.household$Brand == brand),]$loyalty
+  reduced.data$LOYALTY[idx]<-loyalty
+}
+
+hist(reduced.data$LOYALTY, xlab="LOYALTY", main="Amount of Brand Loyalty")
+
+```
+
+
+```{r}
+barplot(table(reduced.data$VEND), main="Vendor (Brand) Sales")
+```
+
+
+```{r}
+purchases.per.person<-aggregate(reduced.data$COUNT, by=list(Person=reduced.data$PANID), FUN=sum)
+
+barplot(table(as.factor(purchases.per.person$x)), main="Number of Purchases\nby Panelists")
+```
+
+
+```{r}
+brands.by.person<-aggregate(reduced.data$COUNT, by=list(Person=reduced.data$PANID, Brand=reduced.data$VEND), FUN=sum)
+brands.by.person<-brands.by.person[order(brands.by.person$Person),]
+brands.by.person$COUNT<-1
+brand.per.person<-aggregate(brands.by.person$COUNT, by=list(Person=brands.by.person$Person), FUN=sum)
+brand.per.person$x<-as.factor(brand.per.person$x)
+
+barplot(table(brand.per.person$x), main="Number of Brands\nby Panelist")
+```
+
+```{r}
+vendor.items<-unique(reduced.data[,c(6, 7)])
+vendor.items<-vendor.items[which(vendor.items$VEND %in% brands),]
+vendor.items$COUNT<-1
+items.per.vendor<-aggregate(vendor.items$COUNT, by=list(Brand=vendor.items$VEND), FUN=sum)
+items.per.vendor<-items.per.vendor[order(-items.per.vendor$x),]
+barplot(items.per.vendor$x, names.arg = items.per.vendor$Brand, main="Items Available by Brand")
+
+```
+
+```{r}
+# Sales by week
+sales.by.week<-aggregate(reduced.data$COUNT, by=list(WEEK=reduced.data$WEEK), FUN=sum)
+sales.by.week<-sales.by.week[order(sales.by.week$WEEK),]
+
+plot(sales.by.week$WEEK, sales.by.week$x, type='l', xlab="Week", ylab = "# Transactions", main="Total Sales by Week")
+```
+
+```{r}
+# items sold that had a display, pr, both
+d.pr.both<-reduced.data[,c(9, 10, 12)]
+d.pr.both$BOTH<-0
+d.pr.both$BOTH[which(d.pr.both$DISPLAY > 0 & d.pr.both$PRICEREDUCTION > 0)]<-1
+
+by.display<-aggregate(d.pr.both$COUNT, by=list(DISPLAYTYPE=d.pr.both$DISPLAY), FUN=sum)
+display.count.no<-by.display$x[1]
+display.count.yes<-by.display$x[2]+by.display$x[3]
+
+by.pr<-aggregate(d.pr.both$COUNT, by=list(PRTYPE=d.pr.both$PRICEREDUCTION), FUN=sum)
+pr.count.no<-by.pr$x[1]
+pr.count.yes<-by.pr$x[2]
+
+by.both<-aggregate(d.pr.both$COUNT, by=list(BOTHTYPE=d.pr.both$BOTH), FUN=sum)
+both.count.no<-by.both$x[1]
+both.count.yes<-by.both$x[2]
+both.count.no + both.count.yes
+stacked.vals<-matrix(c(display.count.yes, pr.count.yes, both.count.yes, display.count.no, pr.count.no, both.count.no), ncol = 3, byrow = TRUE)
+vals<-c(display.count.yes, pr.count.yes, both.count.yes)
+labs<-c("DISPLAY", "PRICEREDUCED", "BOTH")
+bp<-barplot(height=vals, names.arg = labs, ylim = c(0, 10000))
+lines(x=c(0, 4), y=c(9949, 9949), col='red')
+```
+
+```{r}
+barplot(stacked.vals, col=c("lightblue", "gray"), names.arg=labs, legend=c("TRUE", "FALSE"), main="Transactions with Features")
+```
+
+
+```{r}
+# number of panelists in transactions
+length(unique(reduced.data$PANID))
+```
+
+```{r}
+# number of items purchased
+length(unique(paste(reduced.data$ITEM, reduced.data$VEND, sep="_")))
+```
+

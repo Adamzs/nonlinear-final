@@ -8,6 +8,11 @@ library(dplyr)
 library(plyr)
 require(utils)
 
+library(gamair)
+data(chicago)
+
+chicago$death
+
 trimspaces <- function(dat) {
   dat$COLUPC<-trimws(dat$COLUPC)
   dat$WEEK<-trimws(dat$WEEK)
@@ -44,3 +49,29 @@ imputedPrice <- ddply(priceDf, ~ VEND, transform, AVG_RATE = impute.mean(AVG_RAT
 
 ```
 
+
+
+```{r}
+# we need to deal with price, first get unit price
+reduced.data$UNIT_PRICE<-reduced.data$DOLLARS / reduced.data$UNITS
+hist(reduced.data$UNIT_PRICE)
+# now get price per ounce
+reduced.data$PPO<-reduced.data$UNIT_PRICE / reduced.data$VOL_EQ
+hist(reduced.data$PPO)
+
+weekly.av.ppo<-aggregate(reduced.data$PPO, by=list(VEND=reduced.data$VEND, WEEK=reduced.data$WEEK), FUN=mean)
+weekly.av.ppo
+for (idx in c(1:nrow(reduced.data))) {
+  brand<-reduced.data$VEND[idx]
+  week<-reduced.data$WEEK[idx]
+  av.ppo<-weekly.av.ppo[which(weekly.av.ppo$WEEK == week & weekly.av.ppo$VEND == brand),]$x
+  reduced.data$PPO[idx]<-av.ppo
+}
+
+reduced.data
+
+
+# first we need to values for PricePerOunce, Display, PriceReduc, and Loyalty for each vendor for each week
+# then for each Panelist for each weeek we need to list every vendor (with PPO, D, PR and L) with only one of those having a TRUE for CHOICE
+
+```

@@ -19,7 +19,7 @@ merged.data$ITEM<-as.factor(sprintf("%05d", merged.data$ITEM))
 merged.data$D<-as.integer(merged.data$D)
 merged.data$PR<-as.integer(merged.data$PR)
 # < 0.1, 0.1 < x < 0.26, 0.26 < x < 0.35, 0.35 < x < 0.3938, 0.3938 < x < 0.4894, 0.4894 < x < 0.675, 0.675+
-merged.data$VOL_EQ<-cut(merged.data$VOL_EQ, breaks = c(-Inf, 0.1, 0.26, 0.35, 0.3938, 0.4894, 0.675, Inf), labels = c("MICRO", "VERY_SMALL", "SMALL", "MEDIUM_SMALL", "MEDIUM", "MEDIUM_LARGE", "LARGE"))
+#merged.data$VOL_EQ<-cut(merged.data$VOL_EQ, breaks = c(-Inf, 0.1, 0.26, 0.35, 0.3938, 0.4894, 0.675, Inf), labels = c("MICRO", "VERY_SMALL", "SMALL", "MEDIUM_SMALL", "MEDIUM", "MEDIUM_LARGE", "LARGE"))
 merged.data[c(22:57)]<-lapply(merged.data[c(22:57)], factor)
 
 merged.data
@@ -56,7 +56,7 @@ for (x in c(1:ncol(merged.data))) {
 Should we reduce the number of brands we are dealing with?  Now its 29, maybe to 10?
 
 ```{r}
-barplot(table(merged.data$VEND))
+barplot(table(merged.data$VEND), main="Vendor (Brand) Sales")
 ```
 According to the bar chart we could reduce it to something like 6 or 7.
 
@@ -73,6 +73,14 @@ merged.data.reduced<-merged.data[which(merged.data$VEND %in% brands),]
 # how to reduce number of levels to match new?
 merged.data.reduced$VEND<-factor(merged.data.reduced$VEND)
 levels(merged.data.reduced$VEND)
+```
+
+```{r}
+head(merged.data.reduced[,c(2, 7)])
+vendor.items<-unique(merged.data.reduced[,c(2, 7)])
+vendor.items$COUNT<-1
+vendor.items
+aggregate(vendor.items$COUNT, by=list(vendor.items$VEND), FUN=sum)
 ```
 
 
@@ -117,7 +125,7 @@ Lets look at purchases per person:
 ```{r}
 purchases.per.person<-aggregate(merged.data.reduced$COUNT, by=list(Person=merged.data.reduced$PANID), FUN=sum)
 
-barplot(table(as.factor(purchases.per.person$x)))
+barplot(table(as.factor(purchases.per.person$x)), main="Number of Purchases")
 
 ```
 
@@ -146,8 +154,8 @@ How about number of brands a each person switched between:
 brands.by.person$COUNT<-1
 brand.per.person<-aggregate(brands.by.person$COUNT, by=list(Person=brands.by.person$Person), FUN=sum)
 brand.per.person$x<-as.factor(brand.per.person$x)
-
-barplot(table(brand.per.person$x))
+nrow(brand.per.person)
+barplot(table(brand.per.person$x), main="Number of Brand\nby Person")
 ```
 Shows that decent number of people switched between a few brands, but not many above 3.
 
