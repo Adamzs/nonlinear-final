@@ -1,0 +1,384 @@
+---
+title: "Untitled"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+library(plyr)
+library(dplyr)
+
+require(utils)
+library(zoo)
+library(mgcv)
+library(mlogit)
+
+```
+
+
+
+```{r}
+trimspaces <- function(dat) {
+  dat$COLUPC<-trimws(dat$COLUPC)
+  dat$WEEK<-trimws(dat$WEEK)
+  dat$IRI_KEY<-trimws(dat$IRI_KEY)
+  return (dat)
+}
+
+combineupc <- function(dat) {
+  dat$COLUPC<-paste(sprintf("%02d", dat$SY), dat$GE, sprintf("%05d", dat$VEND), sprintf("%05d", dat$ITEM), sep="")
+  return (dat)
+}
+```
+
+
+
+```{r}
+panel.dk = read.table("data/toothpa_PANEL_DR_1427_1478.DAT", sep="", header = TRUE, na.strings="", stringsAsFactors = F, colClasses = c(rep("character",4),"numeric", "character", "character")) 
+panel.dk<-trimspaces(panel.dk)
+panel.gk = read.table("data/toothpa_PANEL_GR_1427_1478.DAT", sep="", header = TRUE, na.strings="", stringsAsFactors = F, colClasses = c(rep("character",4),"numeric", "character", "character"))
+panel.gk<-trimspaces(panel.gk)
+panel.mk = read.table("data/toothpa_PANEL_MA_1427_1478.DAT", sep="", header = TRUE, na.strings="", stringsAsFactors = F, colClasses = c(rep("character",4),"numeric", "character", "character"))
+panel.mk<-trimspaces(panel.mk)
+
+panel.all<-rbind(panel.dk, panel.gk, panel.mk)
+
+trans.groc = read.table("data/toothpa_groc_1427_1478", sep="", header = TRUE, na.strings="", stringsAsFactors = F, colClasses = c(rep("character",2),rep("numeric", 6), "character", "numeric", "numeric"))
+trans.groc<-combineupc(trans.groc)
+trans.groc<-trimspaces(trans.groc)
+
+trans.drug = read.table("data/toothpa_drug_1427_1478", sep="", header = TRUE, na.strings="", stringsAsFactors = F, colClasses = c(rep("character",2),rep("numeric", 6), "character", "numeric", "numeric"))
+trans.drug<-combineupc(trans.drug)
+trans.drug<-trimspaces(trans.drug)
+
+trans.all<-rbind(trans.groc, trans.drug)
+
+prod.attr = read.csv("toothpa_prod_attr.csv", header = TRUE)
+prod.attr$COLUPC<-paste(sprintf("%02d", prod.attr$SY), prod.attr$GE, sprintf("%05d", prod.attr$VEND), sprintf("%05d", prod.attr$ITEM), sep="")
+
+joined.one<-merge(x=panel.all, y=trans.all, by=c("COLUPC", "IRI_KEY", "WEEK"))
+joined.all<-merge(joined.one, prod.attr, by=c("COLUPC"))
+
+levels(joined.all$SIZE)[8]<-"REGULAR"
+
+reduced.data<-data.frame(PANID=as.factor(joined.all$PANID), 
+                         UNITS=as.double(joined.all$UNITS.x), 
+                         OUTLET=as.factor(joined.all$OUTLET), 
+                         DOLLARS=as.double(joined.all$DOLLARS.x),
+                         WEEK=as.double(joined.all$WEEK),
+                         VEND=as.factor(joined.all$VEND.x), 
+                         ITEM=as.factor(joined.all$ITEM.x), 
+                         FEATURE=as.factor(joined.all$F), 
+                         DISPLAY=joined.all$D, 
+                         PRICEREDUCTION=joined.all$PR, 
+                         VOL_EQ=joined.all$VOL_EQ, 
+                         SIZE=joined.all$SIZE,
+                         PRODUCT.TYPE=joined.all$PRODUCT.TYPE 
+                         )
+reduced.data$FEATURE <- as.character(reduced.data$FEATURE)
+reduced.data[reduced.data$FEATURE == "NONE",]$FEATURE <- "0"
+reduced.data[reduced.data$FEATURE == "C",]$FEATURE <- "1"
+reduced.data[reduced.data$FEATURE == "B",]$FEATURE <- "2"
+reduced.data[reduced.data$FEATURE == "A",]$FEATURE <- "3"
+reduced.data[reduced.data$FEATURE == "A+",]$FEATURE <- "4"
+
+reduced.data$COUNT<-1
+
+reduced.data<-reduced.data[which(reduced.data$PRODUCT.TYPE == "TOOTHPASTE"),]
+reduced.data$PRODUCT.TYPE<-factor(reduced.data$PRODUCT.TYPE)
+
+reduced.data<-reduced.data[which(reduced.data$SIZE == "REGULAR"),]
+reduced.data$SIZE<-factor(reduced.data$SIZE)
+
+#get rid of size and product type now
+cnames<-colnames(reduced.data)
+cols.remove<-c(which(cnames == "SIZE"), which(cnames == "PRODUCT.TYPE"))
+reduced.data<-reduced.data[,-cols.remove]
+
+vendor.counts<-aggregate(reduced.data$COUNT, by=list(Brand<-reduced.data$VEND), FUN=sum)
+#lets take anything above 40
+brands<-as.character(vendor.counts[which(vendor.counts$x > 40),1])
+# 
+# reduced.data<-reduced.data[which(reduced.data$VEND %in% brands),]
+# reduced.data$VEND<-factor(reduced.data$VEND)
+
+purchases.by.brand.per.household<-aggregate(reduced.data$COUNT, by=list(Brand=reduced.data$VEND, Household=reduced.data$PANID), FUN=sum)
+total.purchases.per.household<-aggregate(purchases.by.brand.per.household$x, by=list(Household=purchases.by.brand.per.household$Household), FUN=sum)
+
+purchases.by.brand.per.household$loyalty<-0
+for (idx in c(1:nrow(purchases.by.brand.per.household))) {
+  house<-purchases.by.brand.per.household[idx,2]
+  total<-total.purchases.per.household[which(total.purchases.per.household[,1] == house),2]
+  purchases.by.brand.per.household[idx,4]<-purchases.by.brand.per.household$x[idx] / total
+}
+
+reduced.data$LOYALTY<-0
+for (idx in c(1:nrow(reduced.data))) {
+  brand<-reduced.data$VEND[idx]
+  house<-reduced.data$PANID[idx]
+  loyalty<-purchases.by.brand.per.household[which(purchases.by.brand.per.household$Household == house & purchases.by.brand.per.household$Brand == brand),]$loyalty
+  reduced.data$LOYALTY[idx]<-loyalty
+}
+
+reduced.data$FEATURE <- as.numeric(reduced.data$FEATURE)
+reduce.feature<-aggregate(reduced.data$FEATURE, by=list(VEND=reduced.data$VEND, WEEK=reduced.data$WEEK), FUN=max)
+
+reduced.data$FEATURE<-NA
+# now replace all the DISPLAY values in our dataset with the weekly max for the vendor
+for (idx in c(1:nrow(reduced.data))) {
+  brand<-reduced.data$VEND[idx]
+  week<-reduced.data$WEEK[idx]
+  av.feature<-reduce.feature[which(reduce.feature$WEEK == week & reduce.feature$VEND == brand),]$x
+  reduced.data$FEATURE[idx]<-av.feature
+}
+
+reduce.display<-aggregate(reduced.data$DISPLAY, by=list(VEND=reduced.data$VEND, WEEK=reduced.data$WEEK), FUN=max)
+
+reduced.data$DISPLAY<-NA
+# now replace all the DISPLAY values in our dataset with the weekly avereage for the vendor
+for (idx in c(1:nrow(reduced.data))) {
+  brand<-reduced.data$VEND[idx]
+  week<-reduced.data$WEEK[idx]
+  av.display<-reduce.display[which(reduce.display$WEEK == week & reduce.display$VEND == brand),]$x
+  reduced.data$DISPLAY[idx]<-av.display
+}
+
+reduce.pr<-aggregate(reduced.data$PRICEREDUCTION, by=list(VEND=reduced.data$VEND, WEEK=reduced.data$WEEK), FUN=sum)
+reduce.pr[which(reduce.pr$x > 0),3]<-1
+
+reduced.data$PRICEREDUCTION<-NA
+for (idx in c(1:nrow(reduced.data))) {
+  brand<-reduced.data$VEND[idx]
+  week<-reduced.data$WEEK[idx]
+  av.pr<-reduce.pr[which(reduce.pr$WEEK == week & reduce.pr$VEND == brand),]$x
+  reduced.data$PRICEREDUCTION[idx]<-av.pr
+}
+
+# PRICE
+reduced.data$PRICE_PER_OUNCE<-(reduced.data$DOLLARS/reduced.data$UNITS) / reduced.data$VOL_EQ
+tpriceDf <- reduced.data %>% group_by(WEEK, VEND) %>% dplyr::summarise(AVGRATE = mean(PRICE_PER_OUNCE))
+
+priceDf <- expand.grid(WEEK=c(min(tpriceDf$WEEK) : max(tpriceDf$WEEK)), VEND = unique(reduced.data$VEND))
+
+priceDf <- merge(x=priceDf, y=tpriceDf, by=c("WEEK", "VEND"), all.x=TRUE)
+
+priceDf <- priceDf[order(priceDf$VEND, priceDf$WEEK),]
+
+for(i in unique(priceDf$VEND)){
+  if(is.na(priceDf[priceDf$WEEK == 1427 &
+             priceDf$VEND == i,]$AVGRATE)){
+    tdf <- priceDf[priceDf$VEND == i &
+                     !is.na(priceDf$AVGRATE),]
+    priceDf[priceDf$WEEK == 1427 &
+              priceDf$VEND == i,]$AVGRATE <- tdf[order(tdf$VEND),]$AVGRATE[1]
+  }
+}
+
+priceDf <- priceDf %>%
+  group_by(VEND) %>% 
+  mutate(AVGRATE = na.locf(AVGRATE, na.rm = T))
+
+# DISPLAY
+displayDf <- expand.grid(WEEK=c(min(reduced.data$WEEK) : max(reduced.data$WEEK)), VEND = unique(reduced.data$VEND))
+disp.data <- unique(reduced.data[,c(5, 6, 9)])
+displayDf <- unique(merge(x=displayDf, y=disp.data, by=c("WEEK", "VEND"), all.x=TRUE))
+
+displayDf <- displayDf[order(displayDf$VEND, displayDf$WEEK),]
+
+displayDf[which(displayDf$WEEK == 1427 & is.na(displayDf$DISPLAY)),]$DISPLAY<-0
+
+displayDf <- displayDf %>%
+  group_by(VEND) %>% 
+  mutate(DISPLAY = na.locf(DISPLAY, na.rm = T))
+ 
+displayDf$DISPLAY <- as.numeric(displayDf$DISPLAY)
+
+# FEATURE
+featureDf <- expand.grid(WEEK=c(min(reduced.data$WEEK) : max(reduced.data$WEEK)), VEND = unique(reduced.data$VEND))
+feature.data <- unique(reduced.data[,c(5, 6, 8)])
+featureDf <- unique(merge(x=featureDf, y=feature.data, by=c("WEEK", "VEND"), all.x=TRUE))
+
+featureDf <- featureDf[order(featureDf$VEND, featureDf$WEEK),]
+
+featureDf[which(featureDf$WEEK == 1427 & is.na(featureDf$FEATURE)),]$FEATURE<-0
+
+featureDf <- featureDf %>%
+ group_by(VEND) %>% 
+ mutate(FEATURE = na.locf(FEATURE, na.rm = T))
+
+featureDf$FEATURE <- as.numeric(featureDf$FEATURE)
+
+# PRICEREDUCTION
+pricereducDf <- expand.grid(WEEK=c(min(reduced.data$WEEK) : max(reduced.data$WEEK)), VEND = unique(reduced.data$VEND))
+pr.data <- unique(reduced.data[,c(5, 6, 10)])
+pricereducDf <- merge(x=pricereducDf, y=pr.data, by=c("WEEK", "VEND"), all.x=TRUE)
+
+pricereducDf <- pricereducDf[order(pricereducDf$VEND, pricereducDf$WEEK),]
+
+pricereducDf[which(pricereducDf$WEEK == 1427 & is.na(pricereducDf$PRICEREDUCTION)),]$PRICEREDUCTION<-0
+
+# pricereducDf[which(pricereducDf$WEEK == 1427 & pricereducDf$VEND == 24291),3]<-0
+# 
+pricereducDf <- pricereducDf %>%
+ group_by(VEND) %>% 
+ mutate(PRICEREDUCTION = na.locf(PRICEREDUCTION, na.rm = T))
+
+pricereducDf$PRICEREDUCTION <- as.numeric(pricereducDf$PRICEREDUCTION)
+
+combined<-merge(x = merge(x=merge(x=priceDf, y=displayDf, by=c("WEEK", "VEND"), all.x=TRUE), y=pricereducDf, by=c("WEEK", "VEND"), all.x=TRUE), y = featureDf, all.x=TRUE)
+
+panelist.attrs = read.csv("data/DEMOS_1322_1373.csv", header = TRUE)
+names(panelist.attrs)[1]<-"PANID"
+reduced.data.test<-merge(reduced.data, panelist.attrs, by=c("PANID"))
+
+panelist.attrs$MALE_SMOKE[which(panelist.attrs$MALE_SMOKE == ".")]<-0
+panelist.attrs$FEM_SMOKE[which(panelist.attrs$FEM_SMOKE == ".")]<-0
+panelist.attrs$MALE_SMOKE <- as.numeric(as.character(panelist.attrs$MALE_SMOKE))
+panelist.attrs$FEM_SMOKE <- as.numeric(as.character(panelist.attrs$FEM_SMOKE))
+
+attrs.reduced<-panelist.attrs[,c(1, 3, 15, 20)]
+panelists<-reduced.data[,c(1, 5)]
+panelists.with.income<-merge(x=panelists, y=attrs.reduced, by=c("PANID"), all.x = TRUE)
+
+data.subset<-reduced.data[,c(1, 6, 13)]
+panelists.from.trans<-unique(data.subset$PANID)
+panelists.with.income<-panelists.with.income[which(panelists.with.income$PANID %in% panelists.from.trans),]
+
+getLoyaltyByPanelistVendor <- function(vendor, panelist){
+  # this works because loyalty is the same accross weeks, if we change to a different equation for loyalty this would have to change
+  return (data.subset[data.subset$VEND == vendor & data.subset$PANID == panelist,]$LOYALTY[1])
+}
+
+for(i in brands){
+  param <- paste("LOYALTY", i, sep=".")
+  panelists.with.income[,param] <- sapply(1:nrow(panelists.with.income), function(x) {getLoyaltyByPanelistVendor(vendor = i, panelist = panelists.with.income[x,]$PANID)})
+}
+
+panelists.with.income[is.na(panelists.with.income)]<-0
+
+for(level in brands){
+  reduced.data[paste("brand", level, sep = "_")] <- ifelse(reduced.data$VEND == level, 1, 0)
+}
+
+brand.dummies.data<-reduced.data[,c(1, 5, 14:20)]
+panelists.with.income$WEEK<-as.factor(panelists.with.income$WEEK)
+panelists.with.income$PANID<-as.factor(panelists.with.income$PANID)
+
+brand.dummies.data$WEEK<-as.factor(brand.dummies.data$WEEK)
+brand.dummies.data$PANID<-as.factor(brand.dummies.data$PANID)
+
+all.data.combined<-merge(x=brand.dummies.data, y=panelists.with.income, by=c("PANID", "WEEK"), all.x=TRUE)
+
+getVendParamByWeek <- function(vendor, week, param, value){
+  param <- 
+  return(combined[combined$VEND == vendor & combined$WEEK == week,param][1])
+}
+
+for(i in unique(combined$VEND)){
+  avgRateParam <- paste("AVGRATE", i, sep=".")
+  displayParam <- paste("DISPLAY", i, sep=".")
+  pricereductionParam <- paste("PRICEREDUCTION", i, sep=".")
+  featureParam <- paste("FEATURE", i, sep=".")
+  all.data.combined[,avgRateParam] <- sapply(1:nrow(all.data.combined), function(x) { getVendParamByWeek(vendor = i, week = all.data.combined[x,]$WEEK, param = "AVGRATE")})
+  all.data.combined[,displayParam] <- sapply(1:nrow(all.data.combined), function(x) { getVendParamByWeek(vendor = i, week = all.data.combined[x,]$WEEK, param = "DISPLAY")})
+  all.data.combined[,pricereductionParam] <- sapply(1:nrow(all.data.combined), function(x) { getVendParamByWeek(vendor = i, week = all.data.combined[x,]$WEEK, param = "PRICEREDUCTION")})
+  all.data.combined[,featureParam] <- sapply(1:nrow(all.data.combined), function(x) { getVendParamByWeek(vendor = i, week = all.data.combined[x,]$WEEK, param = "FEATURE")})
+}
+
+```
+
+
+```{r}
+
+
+all.data.combined$PRICE_PER_OUNCE <- NULL
+
+all.data.combined$choice <- paste(all.data.combined$brand_10158, all.data.combined$brand_33200, all.data.combined$brand_35000, all.data.combined$brand_37000, all.data.combined$brand_53100, all.data.combined$brand_77326, sep="")
+
+all.data.combined<-all.data.combined[which(all.data.combined$choice != "000000"),]
+
+all.data.combined$choiceLabel <- "0"
+#all.data.combined[all.data.combined$choice == "000000",]$choiceLabel <- "0"
+all.data.combined[all.data.combined$choice == "100000",]$choiceLabel <- "10158"
+all.data.combined[all.data.combined$choice == "010000",]$choiceLabel <- "33200"
+all.data.combined[all.data.combined$choice == "001000",]$choiceLabel <- "35000"
+all.data.combined[all.data.combined$choice == "000100",]$choiceLabel <- "37000"
+all.data.combined[all.data.combined$choice == "000010",]$choiceLabel <- "53100"
+all.data.combined[all.data.combined$choice == "000001",]$choiceLabel <- "77326"
+
+#all.data.combined[all.data.combined$choice == "000000",]$choice <- 0
+all.data.combined[all.data.combined$choice == "100000",]$choice <- 0
+all.data.combined[all.data.combined$choice == "010000",]$choice <- 1
+all.data.combined[all.data.combined$choice == "001000",]$choice <- 2
+all.data.combined[all.data.combined$choice == "000100",]$choice <- 3
+all.data.combined[all.data.combined$choice == "000010",]$choice <- 4
+all.data.combined[all.data.combined$choice == "000001",]$choice <- 5
+
+all.data.combined$choice <- as.numeric(all.data.combined$choice)
+write.csv(all.data.combined, file="finaldata2.csv")
+
+
+finaldata <- unique(all.data.combined)
+
+finaldata$WEEK <- as.numeric(as.character(finaldata$WEEK))
+```
+
+
+```{r}
+
+mnlmodel0 <- gam(list(choice
+#  ~Combined.Pre.Tax.Income.of.HH + MALE_SMOKE + FEM_SMOKE + WEEK + LOYALTY.10158 + AVGRATE.10158 + DISPLAY.10158 + FEATURE.10158,  
+  ~Combined.Pre.Tax.Income.of.HH + MALE_SMOKE + FEM_SMOKE + WEEK + LOYALTY.33200 + AVGRATE.33200 + DISPLAY.33200 + FEATURE.33200, 
+  ~Combined.Pre.Tax.Income.of.HH + MALE_SMOKE + FEM_SMOKE + WEEK + LOYALTY.35000 + AVGRATE.35000 + DISPLAY.35000 + FEATURE.35000, 
+  ~Combined.Pre.Tax.Income.of.HH + MALE_SMOKE + FEM_SMOKE + WEEK + LOYALTY.37000 + AVGRATE.37000 + DISPLAY.37000 + FEATURE.37000, 
+  ~Combined.Pre.Tax.Income.of.HH + MALE_SMOKE + FEM_SMOKE + WEEK + LOYALTY.53100 + AVGRATE.53100 + DISPLAY.53100 + FEATURE.53100, 
+  ~Combined.Pre.Tax.Income.of.HH + MALE_SMOKE + FEM_SMOKE + WEEK + LOYALTY.77326 + AVGRATE.77326 + DISPLAY.77326 + FEATURE.77326), 
+  data=finaldata, family=multinom(K=5))
+
+
+mnlmodel1 <- gam(list(choice
+#  ~Combined.Pre.Tax.Income.of.HH + MALE_SMOKE + FEM_SMOKE + s(WEEK) + s(LOYALTY.10158) + s(AVGRATE.10158) + DISPLAY.10158 + FEATURE.10158,  
+  ~Combined.Pre.Tax.Income.of.HH + MALE_SMOKE + FEM_SMOKE + s(WEEK) + s(LOYALTY.33200) + s(AVGRATE.33200) + DISPLAY.33200 + FEATURE.33200, 
+  ~Combined.Pre.Tax.Income.of.HH + MALE_SMOKE + FEM_SMOKE + s(WEEK) + s(LOYALTY.35000) + s(AVGRATE.35000) + DISPLAY.35000 + FEATURE.35000, 
+  ~Combined.Pre.Tax.Income.of.HH + MALE_SMOKE + FEM_SMOKE + s(WEEK) + s(LOYALTY.37000) + s(AVGRATE.37000) + DISPLAY.37000 + FEATURE.37000, 
+  ~Combined.Pre.Tax.Income.of.HH + MALE_SMOKE + FEM_SMOKE + s(WEEK) + s(LOYALTY.53100) + s(AVGRATE.53100) + DISPLAY.53100 + FEATURE.53100, 
+  ~Combined.Pre.Tax.Income.of.HH + MALE_SMOKE + FEM_SMOKE + s(WEEK) + s(LOYALTY.77326) + s(AVGRATE.77326) + DISPLAY.77326 + FEATURE.77326), 
+  data=finaldata, family=multinom(K=5))
+
+mnlmodel2 <- gam(list(choice
+#  ~Combined.Pre.Tax.Income.of.HH + MALE_SMOKE + FEM_SMOKE + s(WEEK) + s(LOYALTY.10158, AVGRATE.10158) + DISPLAY.10158 + FEATURE.10158,  
+  ~Combined.Pre.Tax.Income.of.HH + MALE_SMOKE + FEM_SMOKE + s(WEEK) + s(LOYALTY.33200, AVGRATE.33200) + DISPLAY.33200 + FEATURE.33200, 
+  ~Combined.Pre.Tax.Income.of.HH + MALE_SMOKE + FEM_SMOKE + s(WEEK) + s(LOYALTY.35000, AVGRATE.35000) + DISPLAY.35000 + FEATURE.35000, 
+  ~Combined.Pre.Tax.Income.of.HH + MALE_SMOKE + FEM_SMOKE + s(WEEK) + s(LOYALTY.37000, AVGRATE.37000) + DISPLAY.37000 + FEATURE.37000, 
+  ~Combined.Pre.Tax.Income.of.HH + MALE_SMOKE + FEM_SMOKE + s(WEEK) + s(LOYALTY.53100, AVGRATE.53100) + DISPLAY.53100 + FEATURE.53100, 
+  ~Combined.Pre.Tax.Income.of.HH + MALE_SMOKE + FEM_SMOKE + s(WEEK) + s(LOYALTY.77326, AVGRATE.77326) + DISPLAY.77326 + FEATURE.77326), 
+  data=finaldata, family=multinom(K=6))
+
+mnlmodel3 <- gam(list(choice
+#  ~Combined.Pre.Tax.Income.of.HH + MALE_SMOKE + FEM_SMOKE + s(WEEK, bs="cr", k=50) + te(LOYALTY.10158, AVGRATE.10158, k=8) + DISPLAY.10158 + FEATURE.10158,  
+  ~Combined.Pre.Tax.Income.of.HH + MALE_SMOKE + FEM_SMOKE + s(WEEK, bs="cr", k=50) + te(LOYALTY.33200, AVGRATE.33200, k=8) + DISPLAY.33200 + FEATURE.33200, 
+  ~Combined.Pre.Tax.Income.of.HH + MALE_SMOKE + FEM_SMOKE + s(WEEK, bs="cr", k=50) + te(LOYALTY.35000, AVGRATE.35000, k=8) + DISPLAY.35000 + FEATURE.35000, 
+  ~Combined.Pre.Tax.Income.of.HH + MALE_SMOKE + FEM_SMOKE + s(WEEK, bs="cr", k=50) + te(LOYALTY.37000, AVGRATE.37000, k=8) + DISPLAY.37000 + FEATURE.37000, 
+  ~Combined.Pre.Tax.Income.of.HH + MALE_SMOKE + FEM_SMOKE + s(WEEK, bs="cr", k=50) + te(LOYALTY.53100, AVGRATE.53100, k=8) + DISPLAY.53100 + FEATURE.53100, 
+  ~Combined.Pre.Tax.Income.of.HH + MALE_SMOKE + FEM_SMOKE + s(WEEK, bs="cr", k=50) + te(LOYALTY.77326, AVGRATE.77326, k=8) + DISPLAY.77326 + FEATURE.77326), 
+  data=finaldata, family=multinom(K=5))
+
+gamWeekLoyaltyPriceDplyFullModel <- gam(list(choice
+#    ~Combined.Pre.Tax.Income.of.HH + MALE_SMOKE + FEM_SMOKE + s(WEEK) + s(LOYALTY.10158) + s(AVGRATE.10158) + s(LOYALTY.10158, by=DISPLAY.10158) + s(LOYALTY.10158, by=FEATURE.10158) +s(AVGRATE.10158, by=DISPLAY.10158) +s(AVGRATE.10158, by=FEATURE.10158),  
+    ~Combined.Pre.Tax.Income.of.HH + MALE_SMOKE + FEM_SMOKE + s(WEEK) + s(LOYALTY.33200) +s(AVGRATE.33200) +  s(LOYALTY.33200, by=DISPLAY.33200) +  s(LOYALTY.33200, by=FEATURE.33200) + s(AVGRATE.33200, by=DISPLAY.33200) + s(AVGRATE.33200, by=FEATURE.33200), 
+    ~Combined.Pre.Tax.Income.of.HH + MALE_SMOKE + FEM_SMOKE + s(WEEK) + s(LOYALTY.35000) + s(AVGRATE.35000) + s(LOYALTY.35000, by=DISPLAY.35000) + s(AVGRATE.35000, by=DISPLAY.35000) + s(LOYALTY.35000, by=FEATURE.35000) + s(AVGRATE.35000, by=FEATURE.35000), 
+    ~Combined.Pre.Tax.Income.of.HH + MALE_SMOKE + FEM_SMOKE + s(WEEK) +s(LOYALTY.37000) + s(AVGRATE.37000) + s(LOYALTY.37000, by=DISPLAY.37000) + s(AVGRATE.37000, by=DISPLAY.37000)+ s(LOYALTY.37000, by=FEATURE.37000) + s(AVGRATE.37000, by=FEATURE.37000), 
+    ~Combined.Pre.Tax.Income.of.HH + MALE_SMOKE + FEM_SMOKE + s(WEEK) + s(LOYALTY.53100) + s(AVGRATE.53100) + s(LOYALTY.53100, by=DISPLAY.53100) + s(AVGRATE.53100, by=DISPLAY.53100) + s(LOYALTY.53100, by=FEATURE.53100) + s(AVGRATE.53100, by=FEATURE.53100), 
+    ~Combined.Pre.Tax.Income.of.HH + MALE_SMOKE + FEM_SMOKE +  s(WEEK) + s(LOYALTY.77326) + s(AVGRATE.77326) + s(LOYALTY.77326, by=DISPLAY.77326) +s(AVGRATE.77326, by=DISPLAY.77326) + s(LOYALTY.77326, by=FEATURE.77326) +s(AVGRATE.77326, by=FEATURE.77326)), 
+    data=finaldata, family=multinom(K=5))
+
+summary(mnlmodel0)
+summary(mnlmodel1)
+summary(mnlmodel2)
+summary(mnlmodel3)
+
+summary(gamWeekLoyaltyPriceDplyFullModel)
+```
+
+
